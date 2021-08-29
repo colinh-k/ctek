@@ -1,6 +1,13 @@
-#ifndef IOUTILS_H_
-#define IOUTILS_H_
+#include <termios.h>  // for terminal control
+#include <stdlib.h>   // for exit codes, atexit
+#include <unistd.h>   // for std fd's
+#include <errno.h>    // for error checking
+#include <sys/ioctl.h>  // for ioctl, winsize
+#include <stdio.h>
+#include <ctype.h>
 
+#include "Quit.h"
+#include "IOUtils.h"
 #include "TerminalUtils.h"
 
 // static global variables.
@@ -134,8 +141,6 @@ static void SetAttr(int fd, int ops, struct termios *attrs) {
     break;
   }
 }
-
-#endif  // IOUTILS_H_
 
 /*
 ctrl-C == 3s

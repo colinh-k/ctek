@@ -1,4 +1,10 @@
+#include <errno.h>
+#include <unistd.h>  // for POSIX read
+
+#include "Quit.h"
+
 #include "IOUtils.h"
+#include "ESCCommands.h"
 
 int WrappedRead(int fd, unsigned char *buf, int num_chars) {
   int ret_val;
@@ -28,11 +34,3 @@ int WrappedWrite(int fd, const unsigned char *buf, int num_bytes) {
   return bytes_written;
 }
 
-char ReadKey(void) {
-  int bytes_read;
-  unsigned char c;
-  while ((bytes_read = WrappedRead(STDIN_FILENO, &c, 1)) != 1) {
-    if (bytes_read == -1) quit("ReadKey");
-  }
-  return c;
-}

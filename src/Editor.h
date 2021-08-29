@@ -1,7 +1,5 @@
-#include <errno.h>
-
-#include "IOUtils.h"
-#include "TerminalUtils.h"
+#ifndef EDITOR_H_
+#define EDITOR_H_
 
 // Initializes the terminal for editing.
 void Editor_Open(void);
@@ -13,3 +11,5 @@ void Editor_Close(void);
 void Editor_InterpretKeypress(void);
 
 void Editor_Refresh(void);
+
+#endif  // EDITOR_H_

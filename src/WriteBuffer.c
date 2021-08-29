@@ -1,6 +1,16 @@
+#include <stdlib.h>
+#include <string.h>
+#include <unistd.h>
+
+#include "IOUtils.h"
+
 #include "WriteBuffer.h"
 
-void WriteBuffer_Append(Buffer *wbuf, unsigned char *str, int size) {
+void WB_AppendESCCmd(Buffer *wbuf, unsigned char *cmd) {
+  WB_Append(wbuf, cmd, strlen((const char *) cmd));
+}
+
+void WB_Append(Buffer *wbuf, unsigned char *str, int size) {
   // allocate an expanced buffer for the new characters.
   unsigned char *expanded = (unsigned char *)
                             realloc(wbuf->buffer, wbuf->size + size);
@@ -17,6 +27,10 @@ void WriteBuffer_Append(Buffer *wbuf, unsigned char *str, int size) {
   wbuf->size += size;
 }
 
-void WriteBuffer_Free(Buffer *wbuf) {
+void WB_Free(Buffer *wbuf) {
   free(wbuf->buffer);
+}
+
+void WB_Write(Buffer *buf) {
+  WrappedWrite(STDOUT_FILENO, buf->buffer, buf->size);
 }

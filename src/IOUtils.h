@@ -1,7 +1,5 @@
-#include <errno.h>
-#include <unistd.h>  // for POSIX read
-
-#include "Quit.h"
+#ifndef IO_UTILS_H_
+#define IO_UTILS_H_
 
 // Reads in at most num_chars bytes into the given buffer and returns the
 //  number of bytes read. Returns 0 if EOF is reached or read times out
@@ -15,5 +13,4 @@ int WrappedRead(int fd, unsigned char *buf, int num_chars);
 //  value is less than num_bytes.
 int WrappedWrite(int fd, const unsigned char *buf, int num_bytes);
 
-// Reads and returns 1 keypress from stdin. Calls quit if WrappedRead fails.
-char ReadKey(void);
+#endif  // IO_UTILS_H_

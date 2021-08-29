@@ -1,12 +1,5 @@
-#include <termios.h>  // for terminal control
-#include <stdlib.h>   // for exit codes, atexit
-#include <unistd.h>   // for std fd's
-#include <errno.h>    // for error checking
-#include <sys/ioctl.h>  // for ioctl, winsize
-
-#include <ctype.h>
-
-#include "Quit.h"
+#ifndef TERMINAL_UTILS_H_
+#define TERMINAL_UTILS_H_
 
 // Saves the original termios struct in the given location
 //  before setting the terminal to raw mode.
@@ -18,3 +11,5 @@ void Term_UnSetRawMode(struct termios *og_termios);
 
 // Get the size of the window.
 int Term_Size(int *rows, int *cols);
+
+#endif  // TERMINAL_UTILS_H_
