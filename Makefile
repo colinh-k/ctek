@@ -32,7 +32,7 @@ clean:
 	$(RM) $(BINDIR) $(OBJDIR)
 
 run:
-	$(EXE)
+	$(EXE) $(file)
 
 $(OBJDIR) $(BINDIR):
 	mkdir -p $@

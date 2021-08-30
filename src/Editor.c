@@ -11,6 +11,7 @@
 #include "WriteBuffer.h"
 #include "Editor.h"
 #include "ESCCommands.h"
+#include "FileIO.h"
 
 // macros
 
@@ -37,14 +38,6 @@ typedef struct {
   int row;  // vertical position. y
 } Cursor;
 
-// struct to store a row of text.
-typedef struct {
-  // size of the row of characters.
-  int size;
-  // pointer to a row of characters.
-  char *data_ptr;
-} TxtRow;
-
 typedef struct {
   int num_rows;
   int num_cols;
@@ -60,8 +53,10 @@ typedef struct {
   int num_cols;
   // the state of the cursor.
   Cursor cursor;
-  int num_txt_rows;
-  TxtRow txt_row;
+  // number of lines of text from the file.
+  int num_file_lines;
+  // a pointer to an array of FileLines for text lines from the file.
+  FileLine *file_lines;
 } EditorState;
 
 static EditorState e_state;
@@ -74,7 +69,6 @@ static void Editor_RenderRows(Buffer *wbuf);
 static void Editor_RenderWelcome(Buffer *wbuf);
 // move the cursor in accordance with which key was pressed.
 static void Editor_MoveCursor(int key);
-static void Editor_InitText(void);
 
 void Editor_Open(void) {
   // enable raw mode.
@@ -85,13 +79,13 @@ void Editor_Open(void) {
   e_state.cursor = (Cursor) {0, 0};
   // initialize the number of rows of text to 0.
   e_state.num_rows = 0;
+  // set the array of FileLines to NULL
+  e_state.file_lines = NULL;
 
   // get the size of the terminal window.
   int res = Term_Size(&e_state.num_rows, &e_state.num_cols);
   if (res == -1)
     quit("Term_Size");
-
-  Editor_InitText();
 }
 
 void Editor_Close(void) {
@@ -164,22 +158,24 @@ void Editor_Refresh(void) {
 
 static void Editor_RenderRows(Buffer *wbuf) {
   for (int y = 0; y < e_state.num_rows; y++) {
-    if (y >= e_state.num_txt_rows) {
-      // drawing a row that is part of the text buffer.
+    if (y >= e_state.num_file_lines) {
+      // row is not part of the text buffer.
       // write the welcome message 1/3rd down the screen.
-      if (y == e_state.num_rows / 3) {
+      if (e_state.num_file_lines == 0 && y == e_state.num_rows / 3) {
+        // only show the welcome message when the text buffer is empty.
         Editor_RenderWelcome(wbuf);
       } else {
         WB_AppendESCCmd(wbuf, (unsigned char *) EMPTY_LN_CHAR);
       }
     } else {
-      int size = e_state.txt_row.size;
+      // drawing a row that is part of the text buffer.
+      int size = e_state.file_lines[y].size;
       if (size > e_state.num_cols) {
         size = e_state.num_cols;
       }
-      WB_Append(wbuf, (unsigned char *) e_state.txt_row.data_ptr, size);
+      WB_Append(wbuf, (unsigned char *) e_state.file_lines[y].line, size);
     }
-    
+
     // clear the line to the end.
       WB_AppendESCCmd(wbuf, (unsigned char *) ESC_CMD_CLEAR(LINE, END_));
     if (y < e_state.num_rows - 1) {
@@ -243,13 +239,23 @@ static void Editor_MoveCursor(int key) {
   }
 }
 
-static void Editor_InitText(void) {
-  char *line = "Hello World!";
-  ssize_t line_size = strlen(line);
+void Editor_InitFromFile(char *file_name) {
+  // read in the lines from the file.
+  e_state.file_lines = File_GetLines(file_name, &(e_state.num_file_lines));
 
-  e_state.txt_row.size = line_size;
-  e_state.txt_row.data_ptr = malloc(line_size + 1);
-  memcpy(e_state.txt_row.data_ptr, line, line_size);
-  e_state.txt_row.data_ptr[line_size] = '\0';
-  e_state.num_txt_rows = 1;
+  // char *line = File_GetFirstLine(file_name);
+  // if (line == NULL) {
+  //   quit("File_GetFirstLine");
+  // }
+
+  // the line is null-termianted already.
+  // ssize_t line_size = strlen(line);
+
+  // e_state.file_lines.size = line_size;
+  // e_state.file_lines.line = (char *) malloc(line_size);
+  // memcpy(e_state.file_lines.line, line, line_size);
+  // // e_state.file_lines.line[line_size] = '\0';
+  // e_state.num_file_lines = 1;
+
+  // free(line);
 }

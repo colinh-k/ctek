@@ -3,7 +3,6 @@
 #include <ctype.h>  // for iscntrl (is control character)
 #include <stdio.h>  // for perror
 
-// #include "TerminalUtils.h"
 #include "Editor.h"
 #include "Quit.h"
 
@@ -11,12 +10,14 @@
 
 int main(int argc, char const *argv[]) {
   Editor_Open();
+  if (argc == 2) {
+    // if passed a filename, initialize the editor with the file.
+    Editor_InitFromFile(argv[1]);
+  }
 
   while (1) {
     Editor_Refresh();
     Editor_InterpretKeypress();
   }
-
-  Editor_Close();
   return EXIT_SUCCESS;
 }
