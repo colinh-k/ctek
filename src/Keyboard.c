@@ -1,4 +1,5 @@
 #include <unistd.h>
+#include <ctype.h>  // for isdigit
 
 #include "Keyboard.h"
 #include "Quit.h"
@@ -16,6 +17,7 @@ int Keyboard_ReadKey(void) {
   if (key == (unsigned char) ESC) {
     unsigned char cmd[3];
 
+    // read in '[' and next character to the buffer.
     if (WrappedRead(STDIN_FILENO, &cmd[0], 1) != 1 ||
         WrappedRead(STDIN_FILENO, &cmd[1], 1) != 1) {
       // read timed out, so user probably pressed the esc key.
@@ -23,16 +25,60 @@ int Keyboard_ReadKey(void) {
     }
 
     if (cmd[0] == (unsigned char) '[') {
-      // map the arrow keys to asdw that can move the cursor.
+      // cmd has the form: ESC[<...>
+      // if <...> has a 5~ or 5~ as next 1 characters,
+      //  it's a page up or down, respectively.
+      if (isdigit(cmd[1])) {
+        if (WrappedRead(STDIN_FILENO, &cmd[2], 1) != 1) {
+          // timeout, so probably just pressed ESC key
+          return ESC;
+        }
+        // form: ESC[<digit><...>
+        if (cmd[2] == '~') {
+        // form: ESC[<digit>~
+          switch (cmd[1]) {
+            case '3':
+              return DELETE;
+            case '5':  // ESC[5~
+              return PAGE_UP;
+            case '6':  // ESC[6~
+              return PAGE_DOWN;
+            case '1':
+            case '7':
+              // both refer to home key press (OS dependent)
+              return HOME;
+            case '4':
+            case '8':
+              // both refer to end key press (OS dependent)
+              return END;
+          }
+        }
+      } else {
+        // map the arrow keys to asdw that can move the cursor.
+        // form: ESC[<...>
+        switch (cmd[1]) {
+          case 'A':
+            return ARROW_UP;
+          case 'B':
+            return ARROW_DOWN;
+          case 'C':
+            return ARROW_RIGHT;
+          case 'D':
+            return ARROW_LEFT;
+          // other ways for OS to indicate HOME and END:
+          case 'H':
+            return HOME;
+          case 'F':
+            return END;
+        }
+      }
+    } else if (cmd[0] == 'O') {
+      // more ways for OS to indicate HOME and END:
       switch (cmd[1]) {
-        case 'A':
-          return ARROW_UP;
-        case 'B':
-          return ARROW_DOWN;
-        case 'C':
-          return ARROW_RIGHT;
-        case 'D':
-          return ARROW_LEFT;
+        case 'H':
+          return HOME;
+        case 'F':
+          return END;
       }
     }
     return ESC;
