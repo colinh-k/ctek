@@ -14,4 +14,6 @@ void Editor_Refresh(void);
 
 void Editor_InitFromFile(const char *file_name);
 
+void Editor_SetCmdMsg(const char *msg, ...);
+
 #endif  // EDITOR_H_

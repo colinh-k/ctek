@@ -6,7 +6,7 @@
 #include "IOUtils.h"
 #include "ESCCommands.h"
 
-int WrappedRead(int fd, unsigned char *buf, int num_chars) {
+int WrappedRead(int fd, void *buf, int num_chars) {
   int ret_val;
   while (1) {
     ret_val = read(fd, buf, num_chars);
@@ -19,6 +19,7 @@ int WrappedRead(int fd, unsigned char *buf, int num_chars) {
 }
 
 // rewrite.
+// void buffer to accept arguments 
 int WrappedWrite(int fd, const unsigned char *buf, int num_bytes) {
   int write_res, bytes_written = 0;
 

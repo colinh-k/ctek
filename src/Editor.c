@@ -5,6 +5,11 @@
 #include <stdio.h>
 #include <sys/types.h>  // for ssize_t
 
+#include <time.h>  // for time_t
+#include <stdarg.h>  // for varidic args
+
+#include <unistd.h>  // for exec`
+
 #include "Editor.h"
 #include "TerminalUtils.h"
 #include "Keyboard.h"
@@ -17,8 +22,14 @@
 
 // the size of the welcome message buffer.
 #define BUF_SIZE_WEL 64
+// the size of the status bar buffer.
+#define BUF_SIZE_STATUS 64
 // the size of an esc cursor move command buffer.
 #define BUF_SIZE_MV 32
+// the size of the command message buffer.
+#define BUF_SIZE_CMD_MSG 64
+// the timeout to display a new message in seconds.
+#define MSG_TIMEOUT 5
 // the current ctek version.
 #define VERSION "1.0"
 
@@ -31,6 +42,9 @@
 // converts a character byte to the ctrl version of that key.
 // sets highest 3 bits to 0 (i.e., 0x1F == 0b00011111).
 #define CHAR_TO_CTRL(key) ((key) & 0x1F)
+
+// the string form of a single space.
+#define SPACE " "
 
 // state/position of the cursor. 0 indexed.
 typedef struct {
@@ -46,6 +60,8 @@ typedef struct {
 
 // global editor state struct.
 typedef struct {
+  // the name of the displayed file.
+  char *file_name;
   // the original terminal attributes for restoring after
   //  the editor closes.
   struct termios og_term_attr;
@@ -65,6 +81,10 @@ typedef struct {
   FileLine *file_lines;
   // an index into the lind_display of the current FileLine.
   int ld_idx;
+  // a message to display to the user about commands.
+  char msg_line[BUF_SIZE_CMD_MSG];
+  // 
+  time_t msg_time;
 } EditorState;
 
 static EditorState e_state;
@@ -79,12 +99,19 @@ static void Editor_RenderWelcome(Buffer *wbuf);
 static void Editor_MoveCursor(int key);
 // adjust the cur_file_row according to the new cursor location.
 static void Editor_Scroll(void);
+// 
+static void Editor_RenderStatusBar(Buffer *wbuf);
+// returns the smaller of the two numbers.
+static int min(int a, int b);
+static void Editor_RenderMessageLine(Buffer *wbuf);
 
 void Editor_Open(void) {
   // enable raw mode.
   Term_SetRawMode(&e_state.og_term_attr);
   atexit(Editor_Close);
 
+  // stays NULL if no file passed as an argument to the program.
+  e_state.file_name = NULL;
   // initialize the cursor state to (col,row) = (0,0) (upper left corner).
   e_state.cursor = (Cursor) {0, 0};
   // initialize the number of rows of text to 0.
@@ -95,11 +122,17 @@ void Editor_Open(void) {
   e_state.cur_file_row = 0;
   e_state.cur_file_col = 0;
   e_state.ld_idx = 0;
+  e_state.msg_time = 0;
+  // no message to display by default.
+  e_state.msg_line[0] = '\0';
 
   // get the size of the terminal window.
   int res = Term_Size(&e_state.num_rows, &e_state.num_cols);
   if (res == -1)
     quit("Term_Size");
+  // reduce number of rows by 2 to make room for a status
+  //  bar and message line.
+  e_state.num_rows -= 2;
 }
 
 void Editor_Close(void) {
@@ -107,6 +140,10 @@ void Editor_Close(void) {
   Term_UnSetRawMode(&e_state.og_term_attr);
   // free malloc'ed array of file lines.
   File_FreeLines((e_state.file_lines), e_state.num_file_lines);
+
+  // char *str_clear = "clear";
+  // char **args = &str_clear;
+  // execvp("clear", args);
 }
 
 void Editor_InterpretKeypress(void) {
@@ -120,12 +157,29 @@ void Editor_InterpretKeypress(void) {
       break;
     
     case HOME:
+      e_state.cursor.col = 0;
+      break;
+
     case END:
-      e_state.cursor.col = ((key == END) ? (e_state.num_cols - 1) : 0);
+      // snap to the end of a line.
+      if (e_state.cursor.row < e_state.num_file_lines) {
+        e_state.cursor.col = e_state.file_lines[e_state.cursor.row].size;
+      }
       break;
 
     case PAGE_UP:
     case PAGE_DOWN:
+      // scroll up or down by snapping cursor to either the top or bottom of 
+      //  the window, then moving the page down with Editor_MoveCursor.
+      if (key == PAGE_UP) {
+        e_state.cursor.row = e_state.cur_file_row;
+      } else {
+        e_state.cursor.row = e_state.cur_file_row + e_state.num_rows - 1;
+        if (e_state.cursor.row > e_state.num_file_lines) {
+          // prevent out of bounds jump beyond bottom of screen.
+          e_state.cursor.row = e_state.num_file_lines;
+        }
+      }
       for (int i = e_state.num_rows; i > 0; i--) {
         Editor_MoveCursor((key == PAGE_UP ? ARROW_UP : ARROW_DOWN));
       }
@@ -148,15 +202,17 @@ void Editor_Refresh(void) {
 
   // hide the cursor while rendering.
   WB_AppendESCCmd(&write_buf,
-                  (unsigned char *) ESC_CMD_CUR_MODE(HIDE));
+                  ESC_CMD_CUR_MODE(HIDE));
   // move cursor to origin.
   WB_AppendESCCmd(&write_buf,
-                  (unsigned char *) ESC_CMD_MOVE(ORIGIN));
+                  ESC_CMD_MOVE(ORIGIN));
 
   Editor_RenderRows(&write_buf);
+  Editor_RenderStatusBar(&write_buf);
+  Editor_RenderMessageLine(&write_buf);
 
   // move the cursor to its current position.
-  unsigned char mv_cmd[BUF_SIZE_MV];
+  char mv_cmd[BUF_SIZE_MV];
   // cursor col and row are indexed from 0, while
   //  screen row and col are 1 indexed. (TODO: is this correct?)
   // set the cursor position in the line according to the current
@@ -168,7 +224,7 @@ void Editor_Refresh(void) {
 
   // show the cursor.
   WB_AppendESCCmd(&write_buf,
-                  (unsigned char *) ESC_CMD_CUR_MODE(SHOW));
+                  ESC_CMD_CUR_MODE(SHOW));
 
   // write all commands to stdout.
   WB_Write(&write_buf);
@@ -187,7 +243,7 @@ static void Editor_RenderRows(Buffer *wbuf) {
         // only show the welcome message when the text buffer is empty.
         Editor_RenderWelcome(wbuf);
       } else {
-        WB_AppendESCCmd(wbuf, (unsigned char *) EMPTY_LN_CHAR);
+        WB_AppendESCCmd(wbuf, EMPTY_LN_CHAR);
       }
     } else {
       // drawing a row that is part of the text buffer.
@@ -201,22 +257,21 @@ static void Editor_RenderRows(Buffer *wbuf) {
       if (size > e_state.num_cols) {
         size = e_state.num_cols;
       }
-      WB_Append(wbuf, (unsigned char *)
-                (&(e_state.file_lines[disp_line].line_display[e_state.cur_file_col])),
+      WB_Append(wbuf,                 (&(e_state.file_lines[disp_line].line_display[e_state.cur_file_col])),
                 size);
     }
 
     // clear the line to the end.
-      WB_AppendESCCmd(wbuf, (unsigned char *) ESC_CMD_CLEAR(LINE, END_));
-    if (y < e_state.num_rows - 1) {
-      WB_AppendESCCmd(wbuf, (unsigned char *) NL);
-    }
+    WB_AppendESCCmd(wbuf, ESC_CMD_CLEAR(LINE, END_));
+    // if (y < e_state.num_rows - 1) {
+      WB_AppendESCCmd(wbuf, NL);
+    // }
   }
 }
 
 static void Editor_RenderWelcome(Buffer *wbuf) {
   // a buffer for the welcome message
-  unsigned char w_msg_buf[BUF_SIZE_WEL];
+  char w_msg_buf[BUF_SIZE_WEL];
   int w_len = snprintf((char *) w_msg_buf, BUF_SIZE_WEL,
                        "Ctek: Version %s", VERSION);
   if (w_len > e_state.num_cols) {
@@ -228,11 +283,11 @@ static void Editor_RenderWelcome(Buffer *wbuf) {
   int margin = (e_state.num_cols - w_len) / 2;
   if (margin > 0) {
     // works because EMPTY_LN_CHAR has a constant length.
-    WB_AppendESCCmd(wbuf, (unsigned char *) EMPTY_LN_CHAR);
+    WB_AppendESCCmd(wbuf, EMPTY_LN_CHAR);
     margin--;
   }
   while (margin--) {
-    WB_AppendESCCmd(wbuf, (unsigned char *) " ");
+    WB_AppendESCCmd(wbuf, " ");
   }
   WB_Append(wbuf, w_msg_buf, w_len);
 }
@@ -299,6 +354,10 @@ static void Editor_MoveCursor(int key) {
 }
 
 void Editor_InitFromFile(const char *file_name) {
+  // set the file name in the global struct.
+  free(e_state.file_name);
+  // strdup malloc's memory for the string copy.
+  e_state.file_name = strdup(file_name);
   // read in the lines from the file.
   e_state.file_lines = File_GetLines(file_name, &(e_state.num_file_lines));
 }
@@ -328,4 +387,84 @@ static void Editor_Scroll(void) {
   if (e_state.ld_idx >= e_state.cur_file_col + e_state.num_cols) {
     e_state.cur_file_col = e_state.ld_idx - e_state.num_cols + 1;
   }
+}
+
+static void Editor_RenderStatusBar(Buffer *wbuf) {
+  WB_AppendESCCmd(wbuf, ESC_CMD_TEXT_FORMAT(INVERT));
+
+  // build the status string in two parts; one left-aligned,
+  //  the other right-aligned.
+  char status_line_left[BUF_SIZE_STATUS],
+       status_line_right[BUF_SIZE_STATUS];
+  // shows "<NEW FILE>" if no file name was given.
+  char *file_name = (e_state.file_name != NULL) ?
+                    e_state.file_name : "<NEW FILE>";
+  // shows at most 20 characters from the file name.
+  int status_size_left = snprintf(status_line_left, BUF_SIZE_STATUS,
+                             "%d lines from %.20s",
+                             e_state.num_file_lines,
+                             file_name);
+  if (status_size_left > e_state.num_cols) {
+    // the status string is too wide to fit in the screen,
+    //  so set its size to the maximum it can be on the screen.
+    status_size_left = e_state.num_cols;
+  }
+
+  // print the current line number out of total lines.
+  // e_state.cursor.row is 0 indexed, so add 1 to the displayed value.
+  int status_size_right = snprintf(status_line_right, BUF_SIZE_STATUS,
+                                   "<%d> | <%d>",
+                                   e_state.cursor.row + 1,
+                                   e_state.num_file_lines);
+
+  // write the left side of the status bar to the buffer.
+  WB_Append(wbuf, status_line_left, status_size_left);
+
+  // write spaces to the buffer until adding the right side would
+  //  align it flush with the last column on the right.
+  while (status_size_left < e_state.num_cols) {
+    if (e_state.num_cols - status_size_left == status_size_right) {
+      // if there is exactly enough space for the right side,
+      //  write it to the buffer.
+      WB_Append(wbuf, status_line_right, status_size_right);
+      break;
+    }
+    // draw spaces to the edge of the screen so the status
+    //  is on an inverted background.
+    WB_AppendESCCmd(wbuf, SPACE);
+    status_size_left++;
+  }
+
+  WB_AppendESCCmd(wbuf, ESC_CMD_TEXT_FORMAT(DEFAULT));
+  // make room for the message line.
+  WB_AppendESCCmd(wbuf, NL);
+}
+
+void Editor_SetCmdMsg(const char *msg, ...) {
+  // setup varidic args.
+  va_list args;
+  va_start(args, msg);
+
+  // expand the format message with the given args, and
+  //  copy the message into the global struct.
+  vsnprintf(e_state.msg_line, BUF_SIZE_CMD_MSG, msg, args);
+  va_end(args);
+  // NULL arg gets current time.
+  e_state.msg_time = time(NULL);
+}
+
+static void Editor_RenderMessageLine(Buffer *wbuf) {
+  // clear the line.
+  WB_AppendESCCmd(wbuf, ESC_CMD_CLEAR(LINE, END_));
+  // ensure the message can fit in the window.
+  int msg_size = min(strlen(e_state.msg_line), e_state.num_cols);
+  // only render the message if it is less than MSG_TIMEOUT seconds old.
+  if (msg_size != 0 && time(NULL) - e_state.msg_time < MSG_TIMEOUT) {
+    WB_Append(wbuf, e_state.msg_line, msg_size);
+  }
+}
+
+// TODO: use min when deciding if a message can be displayed on the screen.
+static int min(int a, int b) {
+  return (a > b) ? b : a;
 }

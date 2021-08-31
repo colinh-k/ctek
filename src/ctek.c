@@ -15,6 +15,8 @@ int main(int argc, char const *argv[]) {
     Editor_InitFromFile(argv[1]);
   }
 
+  Editor_SetCmdMsg("USAGE: CTRL-Q to quit");
+
   while (1) {
     Editor_Refresh();
     Editor_InterpretKeypress();

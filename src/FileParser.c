@@ -14,7 +14,7 @@
 // a single tab character.
 #define TAB '\t'
 // a single space character.
-#define SPACE ' '
+#define SPACE_CHAR ' '
 
 static int File_Open(const char *file_name, int *fd, int *size);
 
@@ -76,9 +76,9 @@ static void File_SetLineDisplay(FileLine *file_line) {
       // when replacing tabs, always insert 1 space, then check and
       //  add more so the line reaches the nearest column number
       //  divisible by TAB_SIZE.
-      file_line->line_display[idx_line_disp++] = SPACE;
+      file_line->line_display[idx_line_disp++] = SPACE_CHAR;
       while (idx_line_disp % TAB_SIZE != 0) {
-        file_line->line_display[idx_line_disp++] = SPACE;
+        file_line->line_display[idx_line_disp++] = SPACE_CHAR;
       }
     } else {
       file_line->line_display[idx_line_disp++] = file_line->line[idx_line];
@@ -170,6 +170,7 @@ void File_FreeLines(FileLine *file_lines, int num_lines) {
   for (int i = 0; i < num_lines; i++) {
     // free the line from each FileLine struct.
     free(file_lines[i].line);
+    free(file_lines[i].line_display);
     // fprintf(stderr, "LINE %d: ", i);
     // for (int j = 0; j < file_lines[i].size; j++) {      
     //   fprintf(stderr, "%c", file_lines[i].line[j]);

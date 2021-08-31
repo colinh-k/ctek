@@ -31,8 +31,21 @@
 // pass HIDE or SHOW to hide or show cursor.
 #define ESC_CMD_CUR_MODE(m) (ESC_SEQ "?25" m)
 
+// set the text format to use inverted colors
+#define INVERT "7"
+// set the text format to default
+#define DEFAULT "0"
+#define BOLD "1"
+#define UNDERSCORE "4"
+#define BLINK "5"
+// sets formatting of terminal text to the given type.
+// 'm' command accepts ESC[1;4;5m as a command for selecting
+//  multiple formats at once. TODO: consider rewriting with
+//  varidic arguments to build the command.
+#define ESC_CMD_TEXT_FORMAT(type) (ESC_SEQ type "m")
+
 // Puts an esc command sequence for moving the cursor to the
 //  given row and column in given buffer.
-void Get_ESCCmd_Move(unsigned char *buf, int size, int col, int row);
+void Get_ESCCmd_Move(char *buf, int size, int col, int row);
 
 #endif  // ESC_COMMANDS_H_

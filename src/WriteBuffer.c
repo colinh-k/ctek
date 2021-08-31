@@ -6,14 +6,13 @@
 
 #include "WriteBuffer.h"
 
-void WB_AppendESCCmd(Buffer *wbuf, unsigned char *cmd) {
+void WB_AppendESCCmd(Buffer *wbuf, char *cmd) {
   WB_Append(wbuf, cmd, strlen((const char *) cmd));
 }
 
-void WB_Append(Buffer *wbuf, unsigned char *str, int size) {
+void WB_Append(Buffer *wbuf, char *str, int size) {
   // allocate an expanced buffer for the new characters.
-  unsigned char *expanded = (unsigned char *)
-                            realloc(wbuf->buffer, wbuf->size + size);
+  unsigned char *expanded = realloc(wbuf->buffer, wbuf->size + size);
 
   if (expanded == NULL) {
     // realloc failed.

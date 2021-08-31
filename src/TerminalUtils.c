@@ -66,7 +66,7 @@ int Term_Size(int *rows, int *cols) {
     //  its position with escape sequences.
     // 999C: move right by 999
     // 999B: move down by 999
-    int res = WrappedWrite(STDOUT_FILENO, (unsigned char *) "\x1b[999C\x1b[999B", 12);
+    int res = WrappedWrite(STDOUT_FILENO, (const unsigned char *) "\x1b[999C\x1b[999B", 12);
     if (res != 12) return -1;
     return Term_CurorPosition(rows, cols);
   }
@@ -84,7 +84,7 @@ static int Term_CurorPosition(int *row, int *col) {
   unsigned int i = 0;
 
   // 6n: get cursor position
-  int res = WrappedWrite(STDOUT_FILENO, (unsigned char *) "\x1b[6n", 4);
+  int res = WrappedWrite(STDOUT_FILENO, (const unsigned char *) "\x1b[6n", 4);
   if (res != 4) return -1;
 
   while (i < sizeof(buf) - 1) {
