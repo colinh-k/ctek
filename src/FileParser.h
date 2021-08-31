@@ -1,5 +1,5 @@
-#ifndef File_IO_H_
-#define File_IO_H_
+#ifndef FILE_PARSER_H_
+#define FILE_PARSER_H_
 
 #include <unistd.h>
 
@@ -7,8 +7,12 @@
 typedef struct {
   // size of the line of characters.
   int size;
-  // pointer to a line of characters.
+  int size_display;
+  // pointer to a raw line of characters from a file.
   char *line;
+  // the line replaced with characters able to be
+  //  appropriately displayed on the terminal window.
+  char *line_display;
 } FileLine;
 
 // Returns a buffer containing the contents of a file named file_name.
@@ -22,6 +26,12 @@ char *File_ToString(const char *file_name, int *size);
 //  \n and \r. Client must call File_FreeLines later.
 FileLine *File_GetLines(const char *file_name, int *size);
 
-void File_FreeLines(FileLine **file_lines);
+void File_FreeLines(FileLine *file_lines, int num_lines);
 
-#endif  // File_IO_H_
+// converts an index into f_line's line field to an index into the 
+//  line_display field. returns the converted cooresponding index.
+//  account for tabs in the line that appear as multiple " " 
+//  in line_display.
+int File_RawToDispIdx(FileLine *f_line, int line_idx);
+
+#endif  // FILE_PARSER_H_

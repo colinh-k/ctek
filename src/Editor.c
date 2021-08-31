@@ -5,13 +5,13 @@
 #include <stdio.h>
 #include <sys/types.h>  // for ssize_t
 
-#include "Keyboard.h"
-#include "TerminalUtils.h"
-#include "Quit.h"
-#include "WriteBuffer.h"
 #include "Editor.h"
+#include "TerminalUtils.h"
+#include "Keyboard.h"
+#include "WriteBuffer.h"
 #include "ESCCommands.h"
-#include "FileIO.h"
+#include "FileParser.h"
+#include "Quit.h"
 
 // macros
 
@@ -34,6 +34,7 @@
 
 // state/position of the cursor. 0 indexed.
 typedef struct {
+  // with cur_file_*, num_rows now refers to cursor position in the file.
   int col;  // horizontal position. x
   int row;  // vertical position. y
 } Cursor;
@@ -55,8 +56,15 @@ typedef struct {
   Cursor cursor;
   // number of lines of text from the file.
   int num_file_lines;
+  // the current line number of the file being shown
+  //  (indexed from top of file).
+  int cur_file_row;
+  // current column offset into the file.
+  int cur_file_col;
   // a pointer to an array of FileLines for text lines from the file.
   FileLine *file_lines;
+  // an index into the lind_display of the current FileLine.
+  int ld_idx;
 } EditorState;
 
 static EditorState e_state;
@@ -69,6 +77,8 @@ static void Editor_RenderRows(Buffer *wbuf);
 static void Editor_RenderWelcome(Buffer *wbuf);
 // move the cursor in accordance with which key was pressed.
 static void Editor_MoveCursor(int key);
+// adjust the cur_file_row according to the new cursor location.
+static void Editor_Scroll(void);
 
 void Editor_Open(void) {
   // enable raw mode.
@@ -81,6 +91,10 @@ void Editor_Open(void) {
   e_state.num_rows = 0;
   // set the array of FileLines to NULL
   e_state.file_lines = NULL;
+  // set the current line to 0.
+  e_state.cur_file_row = 0;
+  e_state.cur_file_col = 0;
+  e_state.ld_idx = 0;
 
   // get the size of the terminal window.
   int res = Term_Size(&e_state.num_rows, &e_state.num_cols);
@@ -89,7 +103,10 @@ void Editor_Open(void) {
 }
 
 void Editor_Close(void) {
+  // restore the terminal to its original state.
   Term_UnSetRawMode(&e_state.og_term_attr);
+  // free malloc'ed array of file lines.
+  File_FreeLines((e_state.file_lines), e_state.num_file_lines);
 }
 
 void Editor_InterpretKeypress(void) {
@@ -99,7 +116,6 @@ void Editor_InterpretKeypress(void) {
     case CHAR_TO_CTRL('q'):
       // recieved quit command (CTRL-Q)
       Editor_Refresh();
-      Editor_Close();
       exit(EXIT_SUCCESS);
       break;
     
@@ -126,6 +142,8 @@ void Editor_InterpretKeypress(void) {
 }
 
 void Editor_Refresh(void) {
+  Editor_Scroll();
+
   Buffer write_buf = EMPTY_BUF;
 
   // hide the cursor while rendering.
@@ -140,17 +158,19 @@ void Editor_Refresh(void) {
   // move the cursor to its current position.
   unsigned char mv_cmd[BUF_SIZE_MV];
   // cursor col and row are indexed from 0, while
-  //  screen row and col are 0 indexed.
+  //  screen row and col are 1 indexed. (TODO: is this correct?)
+  // set the cursor position in the line according to the current
+  //  position in the line_display field (ld_idx).
   Get_ESCCmd_Move(mv_cmd, BUF_SIZE_MV,
-                  e_state.cursor.col + 1,
-                  e_state.cursor.row + 1);
+                  (e_state.ld_idx - e_state.cur_file_col) + 1,
+                  (e_state.cursor.row - e_state.cur_file_row) + 1);
   WB_AppendESCCmd(&write_buf, mv_cmd);
 
   // show the cursor.
   WB_AppendESCCmd(&write_buf,
                   (unsigned char *) ESC_CMD_CUR_MODE(SHOW));
 
-  // flush the buffer by writing all commands to stdout.
+  // write all commands to stdout.
   WB_Write(&write_buf);
   // free the buffer.
   WB_Free(&write_buf);
@@ -158,7 +178,9 @@ void Editor_Refresh(void) {
 
 static void Editor_RenderRows(Buffer *wbuf) {
   for (int y = 0; y < e_state.num_rows; y++) {
-    if (y >= e_state.num_file_lines) {
+    // calculate the file line to display on the current screen row.
+    int disp_line = y + e_state.cur_file_row;
+    if (disp_line >= e_state.num_file_lines) {
       // row is not part of the text buffer.
       // write the welcome message 1/3rd down the screen.
       if (e_state.num_file_lines == 0 && y == e_state.num_rows / 3) {
@@ -169,11 +191,19 @@ static void Editor_RenderRows(Buffer *wbuf) {
       }
     } else {
       // drawing a row that is part of the text buffer.
-      int size = e_state.file_lines[y].size;
+      // calculate how much of the row to show by subtracting the 
+      //  column position in the file from the size of the line.
+      int size = e_state.file_lines[disp_line].size_display - e_state.cur_file_col;
+      if (size < 0) {
+        // scrolled to far over to view any chars from this line.
+        size = 0;
+      }
       if (size > e_state.num_cols) {
         size = e_state.num_cols;
       }
-      WB_Append(wbuf, (unsigned char *) e_state.file_lines[y].line, size);
+      WB_Append(wbuf, (unsigned char *)
+                (&(e_state.file_lines[disp_line].line_display[e_state.cur_file_col])),
+                size);
     }
 
     // clear the line to the end.
@@ -208,6 +238,11 @@ static void Editor_RenderWelcome(Buffer *wbuf) {
 }
 
 static void Editor_MoveCursor(int key) {
+  // if the current cursor row position is greater than the number of
+  //  lines in the file, set line to NULL. Otherwise, set line to point
+  //  to the last line in the file.
+  FileLine *line = (e_state.cursor.row >= e_state.num_file_lines) ?
+                    NULL : &(e_state.file_lines[e_state.cursor.row]);
   // recall, row number increases down, col number increases left.
   // do not change cursor position if the move would bring the cursor
   //  out of bounds on the screen.
@@ -220,13 +255,23 @@ static void Editor_MoveCursor(int key) {
       break;
     case ARROW_RIGHT:
       // move left by 1 column.
-      if (e_state.cursor.col != e_state.num_cols - 1) {
+      // allowed to scroll past right of screen.
+      // check that the cursor column is to the left of the
+      //  end of the line to prevent scrolling too far right.
+      if (line != NULL && e_state.cursor.col < line->size) {
         e_state.cursor.col++;
+      } else if (line != NULL && e_state.cursor.col == line->size) {
+        // moving right at the end of a line puts cursor on next
+        //  line below at the start of the line.
+        e_state.cursor.row++;
+        e_state.cursor.col = 0;
       }
       break;
     case ARROW_DOWN:
-      // move up by 1 row.
-      if (e_state.cursor.row != e_state.num_rows - 1) {
+      // increment row (going down)
+      // allow the cursor to go past the bottom of the screen,
+      //  but not past the bottom of the file.
+      if (e_state.cursor.row < e_state.num_file_lines) {
         e_state.cursor.row++;
       }
       break;
@@ -234,28 +279,53 @@ static void Editor_MoveCursor(int key) {
       // move right by 1 column.
       if (e_state.cursor.col != 0) {
         e_state.cursor.col--;
+      } else if (e_state.cursor.row > 0) {
+        // move to the end of upper adjacent line if moving left of
+        //  the viewable window.
+        e_state.cursor.row--;
+        e_state.cursor.col = e_state.file_lines[e_state.cursor.row].size;
       }
       break;
   }
+
+  line = (e_state.cursor.row >= e_state.num_file_lines) ?
+          NULL : &(e_state.file_lines[e_state.cursor.row]);
+  int line_size = (line != NULL) ? line->size : 0;
+  if (e_state.cursor.col > line_size) {
+    // adjust the cursor horizontally to the end of a shorter
+    //  line, if previously on a longer line.
+    e_state.cursor.col = line_size;
+  }
 }
 
-void Editor_InitFromFile(char *file_name) {
+void Editor_InitFromFile(const char *file_name) {
   // read in the lines from the file.
   e_state.file_lines = File_GetLines(file_name, &(e_state.num_file_lines));
+}
 
-  // char *line = File_GetFirstLine(file_name);
-  // if (line == NULL) {
-  //   quit("File_GetFirstLine");
+static void Editor_Scroll(void) {
+  e_state.ld_idx = e_state.cursor.col;
+  // if (e_state.cursor.row < e_state.num_file_lines) {
+  //   e_state.ld_idx =
+  //   File_RawToDispIdx(&(e_state.file_lines[e_state.cursor.row]), e_state.cursor.col);
   // }
 
-  // the line is null-termianted already.
-  // ssize_t line_size = strlen(line);
+  // vertical scroll correction.
+  // check if cursor is above visible screen, and scrolls up to
+  //  the cursor location if true.
+  if (e_state.cursor.row < e_state.cur_file_row) {
+    e_state.cur_file_row = e_state.cursor.row;
+  }
+  // check if cursor is below visible screen, and adjust to cursor location.
+  if (e_state.cursor.row >= e_state.cur_file_row + e_state.num_rows) {
+    e_state.cur_file_row = e_state.cursor.row - e_state.num_rows + 1;
+  }
 
-  // e_state.file_lines.size = line_size;
-  // e_state.file_lines.line = (char *) malloc(line_size);
-  // memcpy(e_state.file_lines.line, line, line_size);
-  // // e_state.file_lines.line[line_size] = '\0';
-  // e_state.num_file_lines = 1;
-
-  // free(line);
+  // horizontal scroll correction.
+  if (e_state.ld_idx < e_state.cur_file_col) {
+    e_state.cur_file_col = e_state.ld_idx;
+  }
+  if (e_state.ld_idx >= e_state.cur_file_col + e_state.num_cols) {
+    e_state.cur_file_col = e_state.ld_idx - e_state.num_cols + 1;
+  }
 }

@@ -1,4 +1,4 @@
-#include "FileIO.h"
+#include "FileParser.h"
 #include "IOUtils.h"
 #include "Quit.h"
 
@@ -9,23 +9,16 @@
 #include <unistd.h>  // for close
 #include <stdio.h> 
 
+// the size of a single tab character in number of spaces (" ").
+#define TAB_SIZE 8
+// a single tab character.
+#define TAB '\t'
+// a single space character.
+#define SPACE ' '
+
 static int File_Open(const char *file_name, int *fd, int *size);
 
 char *File_ToString(const char *file_name, int *size) {
-  // struct stat f_stat;
-  // // make sure the given file name is a valid regular file.
-  // int res = stat(file_name, &f_stat);
-  // if (res != 0 || !S_ISREG(f_stat.st_mode)) {
-  //   // the file doesn't exist or is not a regular file.
-  //   return NULL;
-  // }
-
-  // int fd = open(file_name, O_RDONLY);
-  // if (fd == -1) {
-  //   // failed to open the file.
-  //   return NULL;
-  // }
-
   int fd, f_size;
   if (File_Open(file_name, &fd, &f_size) == -1) {
     return NULL;
@@ -55,6 +48,46 @@ char *File_ToString(const char *file_name, int *size) {
   return buf;
 }
 
+static int StrCount(const char *str, int size, char target) {
+  int count = 0;
+  for (int i = 0; i < size; i++) {
+    if (str[i] == target) {
+      count++;
+    }
+  }
+  return count;
+}
+
+// Copies the file_line's line into its line_display and replaces
+//  all non-renderable characters (like tabs) with appropriate
+//  substitutes (like " " (spaces) for tabs).
+static void File_SetLineDisplay(FileLine *file_line) {
+  // find how much memory to allocate for tab conversion.
+  int num_tabs = StrCount(file_line->line, file_line->size, TAB);
+
+  free(file_line->line_display);
+  // TODO: use realloc here instead of free and malloc ?
+  file_line->line_display = malloc(file_line->size + (num_tabs * (TAB_SIZE - 1)) + 1);
+
+  // after loop, idx_line_disp contains num chars copied to line_display.
+  int idx_line_disp = 0;
+  for (int idx_line = 0; idx_line < file_line->size; idx_line++) {
+    if (file_line->line[idx_line] == TAB) {
+      // when replacing tabs, always insert 1 space, then check and
+      //  add more so the line reaches the nearest column number
+      //  divisible by TAB_SIZE.
+      file_line->line_display[idx_line_disp++] = SPACE;
+      while (idx_line_disp % TAB_SIZE != 0) {
+        file_line->line_display[idx_line_disp++] = SPACE;
+      }
+    } else {
+      file_line->line_display[idx_line_disp++] = file_line->line[idx_line];
+    }
+  }
+  file_line->line_display[idx_line_disp] = '\0';
+  file_line->size_display = idx_line_disp;
+}
+
 // Appned the given string 'str' with the given size 'size'
 //  to the given array of FileLines as a new FileLine struct.
 //  'num_lines' is the number of FileLine objects in 'f_lines'.
@@ -65,10 +98,20 @@ static void File_AppendLine(FileLine **f_lines, int *num_lines,
 
   int at = *num_lines;
   (*f_lines)[at].size = size;
+  // malloc a buffer for the line in the new FileLine struct at the end.
   (*f_lines)[at].line = malloc(size + 1);
 
+  // copy the line into the malloc'ed buffer.
   memcpy((*f_lines)[at].line, str, size);
+  // null-terminate the line.
   (*f_lines)[at].line[size] = '\0';
+
+  // initialize the display line fields.
+  (*f_lines)[at].size_display = 0;
+  (*f_lines)[at].line_display = NULL;
+
+  File_SetLineDisplay(&((*f_lines)[at]));
+
   (*num_lines)++;
 }
 
@@ -92,9 +135,9 @@ FileLine *File_GetLines(const char *file_name, int *size) {
   // use getline to get the first line from the file.
   char *line = NULL;
   size_t line_capacity = 0;
-  ssize_t line_size = getline(&line, &line_capacity, f_ptr);
+  ssize_t line_size;
 
-  if (line_size != -1) {
+  while ((line_size = getline(&line, &line_capacity, f_ptr)) != -1) {
     while (line_size > 0 && (line[line_size - 1] == '\n' ||
                              line[line_size - 1] == '\r')) {
       // remove '\n' and '\r' characters from the end of the line.
@@ -105,6 +148,8 @@ FileLine *File_GetLines(const char *file_name, int *size) {
 
   *size = num_lines;
 
+  // line will be reused by getline as a malloc'ed buffer, so only
+  //  free it once.
   free(line);
   fclose(f_ptr);
 
@@ -121,6 +166,36 @@ FileLine *File_GetLines(const char *file_name, int *size) {
   // return file_str;
 }
 
+void File_FreeLines(FileLine *file_lines, int num_lines) {
+  for (int i = 0; i < num_lines; i++) {
+    // free the line from each FileLine struct.
+    free(file_lines[i].line);
+    // fprintf(stderr, "LINE %d: ", i);
+    // for (int j = 0; j < file_lines[i].size; j++) {      
+    //   fprintf(stderr, "%c", file_lines[i].line[j]);
+    // }
+    // fprintf(stderr, "\n");
+  }
+  // free the malloc'ed FileLine array poitner.
+  free(file_lines);
+}
+
+int File_RawToDispIdx(FileLine *f_line, int line_idx) {
+  int res = 0;
+  // only count characters to the left of line_idx
+  for (int i = 0; i < line_idx; i++) {
+    if (f_line->line[i] == TAB) {
+      // res % TAB_SIZE: num cols we are to the right
+      //  of last tab snap.
+      // subtracting from (TAB_SIZE - 1) gives num cols currently
+      //  we are to the left of the next tab snap. Adding to res
+      //  counts just up to the left of next tab snap.
+      res += (TAB_SIZE - 1) - (res % TAB_SIZE);
+    }
+    res++;
+  }
+  return res;
+}
 
 static int File_Open(const char *file_name, int *fd, int *size) {
   struct stat f_stat;
