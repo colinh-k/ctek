@@ -21,7 +21,7 @@ int Keyboard_ReadKey(void) {
     if (WrappedRead(STDIN_FILENO, &cmd[0], 1) != 1 ||
         WrappedRead(STDIN_FILENO, &cmd[1], 1) != 1) {
       // read timed out, so user probably pressed the esc key.
-      return ESC;
+      return KEY_ESC;
     }
 
     if (cmd[0] == (unsigned char) '[') {
@@ -31,26 +31,26 @@ int Keyboard_ReadKey(void) {
       if (isdigit(cmd[1])) {
         if (WrappedRead(STDIN_FILENO, &cmd[2], 1) != 1) {
           // timeout, so probably just pressed ESC key
-          return ESC;
+          return KEY_ESC;
         }
         // form: ESC[<digit><...>
         if (cmd[2] == '~') {
         // form: ESC[<digit>~
           switch (cmd[1]) {
             case '3':
-              return DELETE;
+              return KEY_DELETE;
             case '5':  // ESC[5~
-              return PAGE_UP;
+              return KEY_PAGE_UP;
             case '6':  // ESC[6~
-              return PAGE_DOWN;
+              return KEY_PAGE_DOWN;
             case '1':
             case '7':
               // both refer to home key press (OS dependent)
-              return HOME;
+              return KEY_HOME;
             case '4':
             case '8':
               // both refer to end key press (OS dependent)
-              return END;
+              return KEY_END;
           }
         }
       } else {
@@ -58,30 +58,32 @@ int Keyboard_ReadKey(void) {
         // form: ESC[<...>
         switch (cmd[1]) {
           case 'A':
-            return ARROW_UP;
+            return KEY_ARROW_UP;
           case 'B':
-            return ARROW_DOWN;
+            return KEY_ARROW_DOWN;
           case 'C':
-            return ARROW_RIGHT;
+            return KEY_ARROW_RIGHT;
           case 'D':
-            return ARROW_LEFT;
+            return KEY_ARROW_LEFT;
           // other ways for OS to indicate HOME and END:
           case 'H':
-            return HOME;
+            return KEY_HOME;
           case 'F':
-            return END;
+            return KEY_END;
         }
       }
     } else if (cmd[0] == 'O') {
       // more ways for OS to indicate HOME and END:
       switch (cmd[1]) {
         case 'H':
-          return HOME;
+          return KEY_HOME;
         case 'F':
-          return END;
+          return KEY_END;
       }
     }
-    return ESC;
+    return KEY_ESC;
+  } else if (key == '\r') {
+    return KEY_RETURN;
   } else {
     return key;
   }

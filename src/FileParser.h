@@ -15,12 +15,15 @@ typedef struct {
   char *line_display;
 } FileLine;
 
-// Returns a buffer containing the contents of a file named file_name.
-//  If no such file exists (or insufficient permissions), returns NULL.
-//  Returns NULL if reading failed. Upon successful return, size
-//  holds the number of bytes read by the file. The client is responsible
-//  for free'ing the returned pointer.
-char *File_ToString(const char *file_name, int *size);
+
+// const unsigned char *File_ToString(FileLine **file_lines, int num_lines,
+//                     size_t *file_size);
+
+// Save the given file_lines (an array of size num_lines)
+//  in a file named file_name. Creates and writes to
+//  a new file if the name does not exist as a file.
+void File_Save(const char *file_name, FileLine **file_lines,
+               int num_lines);
 
 // Returns a malloc'ed array of FileLines from the given file, delimiting on
 //  \n and \r. Client must call File_FreeLines later.
@@ -33,5 +36,10 @@ void File_FreeLines(FileLine *file_lines, int num_lines);
 //  account for tabs in the line that appear as multiple " " 
 //  in line_display.
 int File_RawToDispIdx(FileLine *f_line, int line_idx);
+
+void File_AppendLine(FileLine **f_lines, int *num_lines,
+                            const char *str, size_t size);
+
+void File_InsertChar(FileLine *f_line, int idx, char new_char);
 
 #endif  // FILE_PARSER_H_

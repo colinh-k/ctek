@@ -4,19 +4,24 @@
 // Functions and constants to interface with the keyboard.
 
 typedef enum {
+  // special key-binding codes.
+  KEY_BACKSPACE = 500,
+  // KEY_TAB,
+  KEY_RETURN,
+  KEY_ESC,
   // arrow keys for cursor movement.
-  ARROW_RIGHT = 1000,  // ESC[C
-  ARROW_LEFT,  // ESC[D
-  ARROW_DOWN,  // ESC[B
-  ARROW_UP,  // ESC[A
+  KEY_ARROW_RIGHT = 1000,  // ESC[C
+  KEY_ARROW_LEFT,  // ESC[D
+  KEY_ARROW_DOWN,  // ESC[B
+  KEY_ARROW_UP,  // ESC[A
   // page up and down keys to move cursor to top and btm of screen.
-  PAGE_UP,  // ESC[5~
-  PAGE_DOWN,  // ESC[6~
+  KEY_PAGE_UP,  // ESC[5~
+  KEY_PAGE_DOWN,  // ESC[6~
   // home and end to move cursor to start, end of line, respectively.
-  HOME,  // ESC[1~, ESC[7~, ESC[H, ESC[OH
-  END,  // ESC[4~, ESC[8~, ESC[F, ESC[OF
+  KEY_HOME,  // ESC[1~, ESC[7~, ESC[H, ESC[OH
+  KEY_END,  // ESC[4~, ESC[8~, ESC[F, ESC[OF
   // delete key
-  DELETE  // ESC[3~
+  KEY_DELETE  // ESC[3~
 } Key_t;
 
 // Reads and returns 1 keypress from stdin. Calls quit if

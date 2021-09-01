@@ -105,6 +105,8 @@ static void Editor_RenderStatusBar(Buffer *wbuf);
 static int min(int a, int b);
 static void Editor_RenderMessageLine(Buffer *wbuf);
 
+static void Editor_InsertChar(char new_char);
+
 void Editor_Open(void) {
   // enable raw mode.
   Term_SetRawMode(&e_state.og_term_attr);
@@ -140,7 +142,6 @@ void Editor_Close(void) {
   Term_UnSetRawMode(&e_state.og_term_attr);
   // free malloc'ed array of file lines.
   File_FreeLines((e_state.file_lines), e_state.num_file_lines);
-
   // char *str_clear = "clear";
   // char **args = &str_clear;
   // execvp("clear", args);
@@ -152,26 +153,51 @@ void Editor_InterpretKeypress(void) {
   switch (key) {
     case CHAR_TO_CTRL('q'):
       // recieved quit command (CTRL-Q)
-      Editor_Refresh();
+      // no error checking with quit, since that might
+      //  start a loop of error catching.
+      // clear the screen.
+      write(STDOUT_FILENO, ESC_CMD_CLEAR(SCREEN, ALL),
+            sizeof(ESC_CMD_CLEAR(SCREEN, ALL)));
+      // move the cursor to the origin.
+      write(STDOUT_FILENO, ESC_CMD_MOVE(ORIGIN),
+            sizeof(ESC_CMD_MOVE(ORIGIN)));
       exit(EXIT_SUCCESS);
       break;
+
+    case KEY_RETURN:
+      break;
     
-    case HOME:
+    case KEY_BACKSPACE:
+    case CHAR_TO_CTRL('h'):
+    case KEY_DELETE:
+      break;
+
+    case CHAR_TO_CTRL('l'):
+    case KEY_ESC:
+      break;
+
+    case CHAR_TO_CTRL('s'):
+      // save command
+      File_Save(e_state.file_name, &(e_state.file_lines),
+                e_state.num_file_lines);
+      break;
+    
+    case KEY_HOME:
       e_state.cursor.col = 0;
       break;
 
-    case END:
+    case KEY_END:
       // snap to the end of a line.
       if (e_state.cursor.row < e_state.num_file_lines) {
         e_state.cursor.col = e_state.file_lines[e_state.cursor.row].size;
       }
       break;
 
-    case PAGE_UP:
-    case PAGE_DOWN:
-      // scroll up or down by snapping cursor to either the top or bottom of 
+    case KEY_PAGE_UP:
+    case KEY_PAGE_DOWN:
+      // scroll up or down by snapping cursor to either the top or bottom of
       //  the window, then moving the page down with Editor_MoveCursor.
-      if (key == PAGE_UP) {
+      if (key == KEY_PAGE_UP) {
         e_state.cursor.row = e_state.cur_file_row;
       } else {
         e_state.cursor.row = e_state.cur_file_row + e_state.num_rows - 1;
@@ -181,16 +207,22 @@ void Editor_InterpretKeypress(void) {
         }
       }
       for (int i = e_state.num_rows; i > 0; i--) {
-        Editor_MoveCursor((key == PAGE_UP ? ARROW_UP : ARROW_DOWN));
+        Editor_MoveCursor((key == KEY_PAGE_UP ? KEY_ARROW_UP : KEY_ARROW_DOWN));
       }
       break;
 
-    case ARROW_UP:
-    case ARROW_RIGHT:
-    case ARROW_DOWN:
-    case ARROW_LEFT:
+    case KEY_ARROW_UP:
+    case KEY_ARROW_RIGHT:
+    case KEY_ARROW_DOWN:
+    case KEY_ARROW_LEFT:
       // movement keys.
       Editor_MoveCursor(key);
+      break;
+
+    default:
+      // any key that is not an editor key binding is inserted into
+      //  the line.
+      Editor_InsertChar(key);
       break;
   }
 }
@@ -302,13 +334,13 @@ static void Editor_MoveCursor(int key) {
   // do not change cursor position if the move would bring the cursor
   //  out of bounds on the screen.
   switch (key) {
-    case ARROW_UP:
+    case KEY_ARROW_UP:
       // move down by 1 row.
       if (e_state.cursor.row != 0) {
         e_state.cursor.row--;
       }
       break;
-    case ARROW_RIGHT:
+    case KEY_ARROW_RIGHT:
       // move left by 1 column.
       // allowed to scroll past right of screen.
       // check that the cursor column is to the left of the
@@ -322,7 +354,7 @@ static void Editor_MoveCursor(int key) {
         e_state.cursor.col = 0;
       }
       break;
-    case ARROW_DOWN:
+    case KEY_ARROW_DOWN:
       // increment row (going down)
       // allow the cursor to go past the bottom of the screen,
       //  but not past the bottom of the file.
@@ -330,7 +362,7 @@ static void Editor_MoveCursor(int key) {
         e_state.cursor.row++;
       }
       break;
-    case ARROW_LEFT:
+    case KEY_ARROW_LEFT:
       // move right by 1 column.
       if (e_state.cursor.col != 0) {
         e_state.cursor.col--;
@@ -467,4 +499,18 @@ static void Editor_RenderMessageLine(Buffer *wbuf) {
 // TODO: use min when deciding if a message can be displayed on the screen.
 static int min(int a, int b) {
   return (a > b) ? b : a;
+}
+
+static void Editor_InsertChar(char new_char) {
+  if (e_state.cursor.row == e_state.num_file_lines) {
+    // if the cursor is on the last line, append a new FileLine to the
+    //  array of file lines.
+    File_AppendLine(&(e_state.file_lines),
+                    &(e_state.num_file_lines), "", 0);
+  }
+  File_InsertChar(&(e_state.file_lines[e_state.cursor.row]),
+                  e_state.cursor.col, new_char);
+  // move the cursor 1 column to the right so the next character inserted
+  //  is on a different space.
+  e_state.cursor.col++;
 }

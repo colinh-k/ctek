@@ -1,3 +1,5 @@
 *.o
 *.out
 file.txt
+bin/*
+obj/*
