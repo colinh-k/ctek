@@ -8,7 +8,9 @@
 #include <time.h>  // for time_t
 #include <stdarg.h>  // for varidic args
 
-#include <unistd.h>  // for exec`
+#include <unistd.h>  // for exec
+
+#include <stdbool.h>  // for boolean type
 
 #include "Editor.h"
 #include "TerminalUtils.h"
@@ -85,6 +87,9 @@ typedef struct {
   char msg_line[BUF_SIZE_CMD_MSG];
   // 
   time_t msg_time;
+  // true if the editor has changed some text that has not
+  //  been saved in the file; false otherwise.
+  bool is_edited;
 } EditorState;
 
 static EditorState e_state;
@@ -106,6 +111,10 @@ static int min(int a, int b);
 static void Editor_RenderMessageLine(Buffer *wbuf);
 
 static void Editor_InsertChar(char new_char);
+static void Editor_Save();
+// Removes 1 char from the current line to the left of the cursor. Does
+//  nothing if on an empty line, or no char exists to the left of the cursor.
+static void Editor_RemoveChar();
 
 void Editor_Open(void) {
   // enable raw mode.
@@ -127,6 +136,8 @@ void Editor_Open(void) {
   e_state.msg_time = 0;
   // no message to display by default.
   e_state.msg_line[0] = '\0';
+  // initially, the editor and file have the same contents.
+  e_state.is_edited = false;
 
   // get the size of the terminal window.
   int res = Term_Size(&e_state.num_rows, &e_state.num_cols);
@@ -142,34 +153,62 @@ void Editor_Close(void) {
   Term_UnSetRawMode(&e_state.og_term_attr);
   // free malloc'ed array of file lines.
   File_FreeLines((e_state.file_lines), e_state.num_file_lines);
+  // no error checking with quit, since that might
+  //  start a loop of error catching.
+  // clear the screen.
+  write(STDOUT_FILENO, ESC_CMD_CLEAR(SCREEN, ALL),
+        sizeof(ESC_CMD_CLEAR(SCREEN, ALL)));
+  // move the cursor to the origin.
+  write(STDOUT_FILENO, ESC_CMD_MOVE(ORIGIN),
+        sizeof(ESC_CMD_MOVE(ORIGIN)));
   // char *str_clear = "clear";
   // char **args = &str_clear;
   // execvp("clear", args);
 }
 
 void Editor_InterpretKeypress(void) {
+  // static bool pressed_force = false;
+  static bool pressed_quit = false;
   int key = Keyboard_ReadKey();
 
   switch (key) {
+    case '!':
+      if (e_state.is_edited && pressed_quit) {
+        exit(EXIT_SUCCESS);
+      }
+      break;
+
     case CHAR_TO_CTRL('q'):
-      // recieved quit command (CTRL-Q)
+      // recieved quit command (CTRL-Q).
+      // ensure user wants to discard unsaved changes.
+      if (e_state.is_edited) {
+        Editor_SetCmdMsg("WARN: unsaved changes. Type '!' to force.");
+        pressed_quit = true;
+        return;
+      }
       // no error checking with quit, since that might
       //  start a loop of error catching.
       // clear the screen.
-      write(STDOUT_FILENO, ESC_CMD_CLEAR(SCREEN, ALL),
-            sizeof(ESC_CMD_CLEAR(SCREEN, ALL)));
-      // move the cursor to the origin.
-      write(STDOUT_FILENO, ESC_CMD_MOVE(ORIGIN),
-            sizeof(ESC_CMD_MOVE(ORIGIN)));
+      // write(STDOUT_FILENO, ESC_CMD_CLEAR(SCREEN, ALL),
+      //       sizeof(ESC_CMD_CLEAR(SCREEN, ALL)));
+      // // move the cursor to the origin.
+      // write(STDOUT_FILENO, ESC_CMD_MOVE(ORIGIN),
+      //       sizeof(ESC_CMD_MOVE(ORIGIN)));
       exit(EXIT_SUCCESS);
       break;
 
     case KEY_RETURN:
       break;
     
+    case KEY_DELETE:
+      // the delete key keeps the cursor in place, so move 1 right to
+      //  counteract the deletion of the char to the left. Effectively,
+      //  the delete key removes the char highlighted by the cursor.
+      // TODO: fix weird effect when DEL is pressed on the end of a line.
+      Editor_MoveCursor(KEY_ARROW_RIGHT);
     case KEY_BACKSPACE:
     case CHAR_TO_CTRL('h'):
-    case KEY_DELETE:
+      Editor_RemoveChar();
       break;
 
     case CHAR_TO_CTRL('l'):
@@ -178,8 +217,7 @@ void Editor_InterpretKeypress(void) {
 
     case CHAR_TO_CTRL('s'):
       // save command
-      File_Save(e_state.file_name, &(e_state.file_lines),
-                e_state.num_file_lines);
+      Editor_Save();
       break;
     
     case KEY_HOME:
@@ -225,6 +263,10 @@ void Editor_InterpretKeypress(void) {
       Editor_InsertChar(key);
       break;
   }
+
+  // reset the quit sequence indicators by default.
+  // pressed_force = false;
+  pressed_quit = false;
 }
 
 void Editor_Refresh(void) {
@@ -431,11 +473,13 @@ static void Editor_RenderStatusBar(Buffer *wbuf) {
   // shows "<NEW FILE>" if no file name was given.
   char *file_name = (e_state.file_name != NULL) ?
                     e_state.file_name : "<NEW FILE>";
+  char *mod_status = (e_state.is_edited) ? "| <modified>" : "";
   // shows at most 20 characters from the file name.
   int status_size_left = snprintf(status_line_left, BUF_SIZE_STATUS,
-                             "%d lines from %.20s",
+                             "%d lines from %.20s %s",
                              e_state.num_file_lines,
-                             file_name);
+                             file_name,
+                             mod_status);
   if (status_size_left > e_state.num_cols) {
     // the status string is too wide to fit in the screen,
     //  so set its size to the maximum it can be on the screen.
@@ -505,7 +549,7 @@ static void Editor_InsertChar(char new_char) {
   if (e_state.cursor.row == e_state.num_file_lines) {
     // if the cursor is on the last line, append a new FileLine to the
     //  array of file lines.
-    File_AppendLine(&(e_state.file_lines),
+    File_AppendFileLine(&(e_state.file_lines),
                     &(e_state.num_file_lines), "", 0);
   }
   File_InsertChar(&(e_state.file_lines[e_state.cursor.row]),
@@ -513,4 +557,54 @@ static void Editor_InsertChar(char new_char) {
   // move the cursor 1 column to the right so the next character inserted
   //  is on a different space.
   e_state.cursor.col++;
+  // record that the file was edited.
+  e_state.is_edited = true;
+}
+
+// Removes 1 char from the current line to the left of the cursor. Does
+//  nothing if on an empty line, or no char exists to the left of the cursor.
+static void Editor_RemoveChar() {
+  // TODO: combine conditions.
+  if (e_state.cursor.row == e_state.num_file_lines ||
+      (e_state.cursor.col == 0 && e_state.cursor.row == 0)) {
+    // on an empty line, so return early, or on the first line, first
+    //  column in which case there is also nothing to do.
+    return;
+  }
+
+  if (e_state.cursor.col > 0) {
+    // on a line with a char to the left of the cursor,
+    //  so delete it.
+    File_RemoveChar(&(e_state.file_lines[e_state.cursor.row]),
+                    e_state.cursor.col - 1);
+    // move the cursor back by 1 column.
+    e_state.cursor.col--;
+    // record that the file has been changed in the editor.
+    e_state.is_edited = true;
+  } else {
+    // at the start of a line, so append this line to the one above it,
+    //  and delete the current line from the array of FileLines.
+    // the cursor's new position is 1 line above, at the last column on the line.
+    e_state.cursor.col = e_state.file_lines[e_state.cursor.row - 1].size;
+    File_AppendLine(&(e_state.file_lines[e_state.cursor.row - 1]),
+                    e_state.file_lines[e_state.cursor.row].line,
+                    e_state.file_lines[e_state.cursor.row].size);
+    File_RemoveRow(e_state.file_lines, &(e_state.num_file_lines), e_state.cursor.row);
+    e_state.cursor.row--;
+  }
+}
+
+static void Editor_Save() {
+  int res = File_Save(e_state.file_name, &(e_state.file_lines),
+                e_state.num_file_lines);
+
+  if (res == -1) {
+    // error saving.
+    Editor_SetCmdMsg("ERROR: file NOT saved: %s", strerror(errno));
+  } else {
+    Editor_SetCmdMsg("SAVE SUCCESSFUL: %d bytes written to %s",
+                     res, e_state.file_name);
+    // record that the editor and file are in sync.
+    e_state.is_edited = false;
+  }
 }

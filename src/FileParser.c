@@ -15,27 +15,23 @@
 #define TAB '\t'
 // a single space character.
 #define SPACE_CHAR ' '
-
 // the default permissions for a text file. (user: rw; others: r)
 #define PERMS_DEFAULT 0644
 
-static int File_Open(const char *file_name, int *fd, int *size);
+// static int File_Open(const char *file_name, int *fd, int *size);
+static int validate_idx(int idx, int size);
 
 // Returns a pointer to a string containing all the lines from the given
 //  FileLines array containing num_lines FileLines. The caller is 
 //  responsible for free'ing the returned pointer. Upon return,
 //  file_size contains the size of the allocated buffer/string.
 const unsigned char *File_ToString(FileLine **file_lines, int num_lines,
-                    size_t *file_size) {
-  fprintf(stderr, "before for 1\n");
-
+                    int *file_size) {
   for (int i = 0; i < num_lines; i++) {
     // calculate the total number of bytes per line (plus 1 for newline
     //  characters for each line). set the total in the output parameter.
     *file_size += (*file_lines)[i].size + 1;
   }
-
-  fprintf(stderr, "after for 1\n");
 
   // malloc space for the string.
   char *buf = (char *) malloc(*file_size);
@@ -45,7 +41,7 @@ const unsigned char *File_ToString(FileLine **file_lines, int num_lines,
   }
   // an index into the string buffer.
   char *buf_idx = buf;
-  fprintf(stderr, "before for 2\n");
+
   for (int i = 0; i < num_lines; i++) {
     // copy the line into the buffer at the apprpriate lcoation.
     memcpy(buf_idx, (*file_lines)[i].line, (*file_lines)[i].size);
@@ -56,34 +52,48 @@ const unsigned char *File_ToString(FileLine **file_lines, int num_lines,
     // increment the buffer index.
     buf_idx++;
   }
-  fprintf(stderr, "after for 2\n");
 
   return (const unsigned char *) buf;
 }
 
-void File_Save(const char *file_name, FileLine **file_lines,
+int File_Save(const char *file_name, FileLine **file_lines,
                int num_lines) {
   // TODO: write to a temporary file, then rename the file to avoid
   //  issues with truncating.
   if (file_name == NULL) {
-    return;
+    return -1;
   }
 
-  size_t file_size = 0;
+  int file_size = 0;
   const unsigned char *file_str = File_ToString(file_lines, num_lines, &file_size);
   // O_RDWR: open for reading and writing.
   // O_CREAT: create the file with the given name if it doesn't exist.
   // 0644: default permissions for a newly created file (user: rw; others: r)
   int fd = open(file_name, O_RDWR | O_CREAT, PERMS_DEFAULT);
+  if (fd == -1) {
+    // open error.
+    free((void *) file_str);
+    return -1;
+  }
+
   // make the file have a size of file_size, since the new file_str
   //  might contain fewer characters than was already in the file,
   //  so discard whatever was not overwritten. also, pad with \0
   //  bytes if the file is shorter than file_size.
-  ftruncate(fd, file_size);
-  WrappedWrite(fd, file_str, file_size);
+  if (ftruncate(fd, file_size) == -1) {
+    // ftruncate error.
+    close(fd);
+    free((void *) file_str);
+    return -1;
+  }
+
+  if (WrappedWrite(fd, file_str, file_size) != file_size) {
+    // write error. clean up regardless.
+  }
 
   close(fd);
   free((void *) file_str);
+  return file_size;
 }
 
 static int StrCount(const char *str, int size, char target) {
@@ -130,7 +140,7 @@ static void File_SetLineDisplay(FileLine *file_line) {
 //  to the given array of FileLines as a new FileLine struct.
 //  'num_lines' is the number of FileLine objects in 'f_lines'.
 //  'num_lines' is incremented by 1 after the operation.
-void File_AppendLine(FileLine **f_lines, int *num_lines,
+void File_AppendFileLine(FileLine **f_lines, int *num_lines,
                             const char *str, size_t size) {
   *f_lines = realloc(*f_lines, (*num_lines + 1) * sizeof(FileLine));
 
@@ -181,7 +191,7 @@ FileLine *File_GetLines(const char *file_name, int *size) {
       // remove '\n' and '\r' characters from the end of the line.
       line_size--;
     }
-    File_AppendLine(&lines, &num_lines, line, line_size);
+    File_AppendFileLine(&lines, &num_lines, line, line_size);
   }
 
   *size = num_lines;
@@ -236,29 +246,12 @@ int File_RawToDispIdx(FileLine *f_line, int line_idx) {
   return res;
 }
 
-static int File_Open(const char *file_name, int *fd, int *size) {
-  struct stat f_stat;
-  // make sure the given file name is a valid regular file.
-  int res = stat(file_name, &f_stat);
-  if (res != 0 || !S_ISREG(f_stat.st_mode)) {
-    // the file doesn't exist or is not a regular file.
-    return -1;
-  }
-
-  *fd = open(file_name, O_RDONLY);
-  if (*fd == -1) {
-    // open failed.
-    return -1;
-  }
-  *size = f_stat.st_mode;
-  return 0;
-}
-
 void File_InsertChar(FileLine *f_line, int idx, char new_char) {
   // validate the index.
-  if(idx < 0 || idx > f_line->size) {
-    idx = f_line->size;
-  }
+  // if(idx < 0 || idx > f_line->size) {
+  //   idx = f_line->size;
+  // }
+  idx = validate_idx(idx, f_line->size);
 
   // allocate space for the line plus 1 byte we're inserting plus
   //  the null-terminator.
@@ -274,5 +267,52 @@ void File_InsertChar(FileLine *f_line, int idx, char new_char) {
   f_line->line[idx] = new_char;
 
   // update the line_display field to account for the new character.
+  File_SetLineDisplay(f_line);
+}
+
+void File_RemoveChar(FileLine *f_line, int idx) {
+  idx = validate_idx(idx, f_line->size);
+  // move over the characters to the right of idx by one space to the left
+  //  (including '\0').
+  memmove(&(f_line->line[idx]), &(f_line->line[idx + 1]),
+          f_line->size - idx);
+  f_line->size--;
+  File_SetLineDisplay(f_line);
+}
+
+// free the malloc'ed buffers in the FileLine.
+void File_FreeFileLineBufs(FileLine *f_line) {
+  free(f_line->line);
+  free(f_line->line_display);
+}
+
+void File_RemoveRow(FileLine *f_line, int *num_lines, int idx) {
+  idx = validate_idx(idx, *num_lines);
+  // free the line and display line buffers in the target
+  //  FileLine being removed.
+  File_FreeFileLineBufs(&(f_line[idx]));
+  // copy over all the FileLines coming after the target index one
+  //  position before them, overwriting the target FileLine.
+  memmove(&(f_line[idx]), &(f_line[idx + 1]),
+          (*num_lines - idx - 1) * sizeof(FileLine));
+  // removed a line, so decrease the size of the FileLines array.
+  (*num_lines)--;
+}
+
+// if idx is negative or greater than size, returns size; otherwise,
+//  returns idx.
+static int validate_idx(int idx, int size) {
+  return (idx < 0 || idx > size) ? size : idx;
+}
+
+void File_AppendLine(FileLine *f_line, const char *str, size_t str_size) {
+  // make room for the new string to append to f_line's line buffer.
+  f_line->line = realloc(f_line->line, f_line->size + str_size + 1);
+  // copy over the new string to f_line's line buffer.
+  memcpy(&(f_line->line[f_line->size]), str, str_size);
+  // update the size of the f_line's line buffer.
+  f_line->size += str_size;
+  f_line->line[f_line->size] = '\0';  // null-terminate the new line string.
+  // update the line_display field from the new line string.
   File_SetLineDisplay(f_line);
 }

@@ -5,9 +5,9 @@
 
 typedef enum {
   // special key-binding codes.
-  KEY_BACKSPACE = 500,
+  KEY_BACKSPACE = 127,  // ASCII backspace == 127
   // KEY_TAB,
-  KEY_RETURN,
+  KEY_RETURN = 500,
   KEY_ESC,
   // arrow keys for cursor movement.
   KEY_ARROW_RIGHT = 1000,  // ESC[C
