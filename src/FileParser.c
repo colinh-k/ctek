@@ -136,29 +136,39 @@ static void File_SetLineDisplay(FileLine *file_line) {
   file_line->size_display = idx_line_disp;
 }
 
-// Appned the given string 'str' with the given size 'size'
-//  to the given array of FileLines as a new FileLine struct.
+// Insert the given string 'str' with the given size 'size'
+//  to the given array of FileLines as a new FileLine struct
+//  at position idx.
 //  'num_lines' is the number of FileLine objects in 'f_lines'.
 //  'num_lines' is incremented by 1 after the operation.
-void File_AppendFileLine(FileLine **f_lines, int *num_lines,
-                            const char *str, size_t size) {
-  *f_lines = realloc(*f_lines, (*num_lines + 1) * sizeof(FileLine));
+void File_InsertFileLine(FileLine **f_lines, int *num_lines,
+                            const char *str, size_t size,
+                            int idx) {
+  if (idx < 0 || idx > *num_lines) {
+    return;
+  }
 
-  int at = *num_lines;
-  (*f_lines)[at].size = size;
+  // increase the size of the array by an extra sizeof(FileLine).
+  *f_lines = realloc(*f_lines, (*num_lines + 1) * sizeof(FileLine));
+  // make room for the new FileLine at the given target index.
+  memmove(&((*f_lines)[idx + 1]), &((*f_lines)[idx]),
+          (*num_lines - idx) * sizeof(FileLine));
+
+  (*f_lines)[idx].size = size;
   // malloc a buffer for the line in the new FileLine struct at the end.
-  (*f_lines)[at].line = malloc(size + 1);
+  (*f_lines)[idx].line = malloc(size + 1);
 
   // copy the line into the malloc'ed buffer.
-  memcpy((*f_lines)[at].line, str, size);
+  memcpy((*f_lines)[idx].line, str, size);
   // null-terminate the line.
-  (*f_lines)[at].line[size] = '\0';
+  (*f_lines)[idx].line[size] = '\0';
 
   // initialize the display line fields.
-  (*f_lines)[at].size_display = 0;
-  (*f_lines)[at].line_display = NULL;
+  (*f_lines)[idx].size_display = 0;
+  (*f_lines)[idx].line_display = NULL;
 
-  File_SetLineDisplay(&((*f_lines)[at]));
+  // initialize the display line for the new FileLine struct.
+  File_SetLineDisplay(&((*f_lines)[idx]));
 
   (*num_lines)++;
 }
@@ -191,9 +201,11 @@ FileLine *File_GetLines(const char *file_name, int *size) {
       // remove '\n' and '\r' characters from the end of the line.
       line_size--;
     }
-    File_AppendFileLine(&lines, &num_lines, line, line_size);
+    // inser the new FileLine at the end of the array.
+    File_InsertFileLine(&lines, &num_lines, line, line_size, num_lines);
   }
 
+  // set the output parameters with the number of lines read.
   *size = num_lines;
 
   // line will be reused by getline as a malloc'ed buffer, so only
@@ -315,4 +327,36 @@ void File_AppendLine(FileLine *f_line, const char *str, size_t str_size) {
   f_line->line[f_line->size] = '\0';  // null-terminate the new line string.
   // update the line_display field from the new line string.
   File_SetLineDisplay(f_line);
+}
+
+// Split the FileLine at position row in the given FileLine array
+//  at position col in that FileLine's line. Insert a new line
+//  with the part of the line to the right of col below row.
+//  num_lines is the number of FileLines in the f_line array.
+//  After returning, num_lines is incremented, since a new
+//  FileLine was added to the array.
+void File_SplitLine(FileLine **f_line, int *num_lines, int row, int col) {
+  if (col == 0) {
+    // at the start of a line.
+    // insert a brand new empty FileLine at position row 
+    //  (above the current row).
+    File_InsertFileLine(f_line, num_lines, "", strlen(""), row);
+  } else {
+    // alias for a FileLine to split in the array.
+    FileLine *l_ptr = &((*f_line)[row]);
+    // create a new line below the current cursor-highlighted line
+    //  which contains the characters to the right of the cursor.
+    File_InsertFileLine(f_line, num_lines, &(l_ptr->line[col]),
+                        l_ptr->size - col, row + 1);
+    // realloc in File_InsertFileLine might invalidate l_ptr,
+    //  so reassign it here.
+    l_ptr = &((*f_line)[row]);
+    // remove characters on the current line by reducing the size.
+    l_ptr->size = col;
+    // null-terminate the new line string.
+    l_ptr->line[l_ptr->size] = '\0';
+    // update the diaply line according to the new line.
+    File_SetLineDisplay(l_ptr);
+  }
+  // editor should increment row position and set col position to 0.
 }

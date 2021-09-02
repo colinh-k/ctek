@@ -115,6 +115,8 @@ static void Editor_Save();
 // Removes 1 char from the current line to the left of the cursor. Does
 //  nothing if on an empty line, or no char exists to the left of the cursor.
 static void Editor_RemoveChar();
+// split the current line at the current cursor position.
+static void Editor_SplitLine();
 
 void Editor_Open(void) {
   // enable raw mode.
@@ -172,12 +174,6 @@ void Editor_InterpretKeypress(void) {
   int key = Keyboard_ReadKey();
 
   switch (key) {
-    case '!':
-      if (e_state.is_edited && pressed_quit) {
-        exit(EXIT_SUCCESS);
-      }
-      break;
-
     case CHAR_TO_CTRL('q'):
       // recieved quit command (CTRL-Q).
       // ensure user wants to discard unsaved changes.
@@ -198,6 +194,9 @@ void Editor_InterpretKeypress(void) {
       break;
 
     case KEY_RETURN:
+      // split the line at the cursor's current location.
+      fprintf(stderr, "ENTER PRESSED\n");
+      Editor_SplitLine();
       break;
     
     case KEY_DELETE:
@@ -257,6 +256,10 @@ void Editor_InterpretKeypress(void) {
       Editor_MoveCursor(key);
       break;
 
+    case '!':
+      if (e_state.is_edited && pressed_quit) {
+        exit(EXIT_SUCCESS);
+      }
     default:
       // any key that is not an editor key binding is inserted into
       //  the line.
@@ -549,8 +552,9 @@ static void Editor_InsertChar(char new_char) {
   if (e_state.cursor.row == e_state.num_file_lines) {
     // if the cursor is on the last line, append a new FileLine to the
     //  array of file lines.
-    File_AppendFileLine(&(e_state.file_lines),
-                    &(e_state.num_file_lines), "", 0);
+    File_InsertFileLine(&(e_state.file_lines),
+                        &(e_state.num_file_lines), "", 0,
+                        e_state.num_file_lines);
   }
   File_InsertChar(&(e_state.file_lines[e_state.cursor.row]),
                   e_state.cursor.col, new_char);
@@ -607,4 +611,12 @@ static void Editor_Save() {
     // record that the editor and file are in sync.
     e_state.is_edited = false;
   }
+}
+
+static void Editor_SplitLine() {
+  File_SplitLine(&(e_state.file_lines), &(e_state.num_file_lines),
+                 e_state.cursor.row, e_state.cursor.col);
+  // set the cursor to one line down and to the start of the line.
+  e_state.cursor.row++;
+  e_state.cursor.col = 0;
 }

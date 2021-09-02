@@ -38,8 +38,9 @@ void File_FreeLines(FileLine *file_lines, int num_lines);
 //  in line_display.
 int File_RawToDispIdx(FileLine *f_line, int line_idx);
 
-void File_AppendFileLine(FileLine **f_lines, int *num_lines,
-                            const char *str, size_t size);
+void File_InsertFileLine(FileLine **f_lines, int *num_lines,
+                            const char *str, size_t size,
+                            int idx);
 
 void File_InsertChar(FileLine *f_line, int idx, char new_char);
 
@@ -58,5 +59,7 @@ void File_RemoveRow(FileLine *f_line, int *num_lines, int idx);
 // Append the given string str of size str_size to the end of f_line's
 //  line field.
 void File_AppendLine(FileLine *f_line, const char *str, size_t str_size);
+
+void File_SplitLine(FileLine **f_line, int *num_lines, int row, int col);
 
 #endif  // FILE_PARSER_H_
