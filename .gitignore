@@ -1,5 +1,5 @@
 *.o
 *.out
-file.txt
+*.txt
 bin/*
 obj/*

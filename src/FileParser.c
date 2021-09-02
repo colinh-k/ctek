@@ -7,7 +7,7 @@
 #include <stdlib.h>  // for NULL
 #include <string.h>  // for strchr
 #include <unistd.h>  // for close
-#include <stdio.h> 
+#include <stdio.h>
 
 // the size of a single tab character in number of spaces (" ").
 #define TAB_SIZE 8
@@ -61,6 +61,7 @@ int File_Save(const char *file_name, FileLine **file_lines,
   // TODO: write to a temporary file, then rename the file to avoid
   //  issues with truncating.
   if (file_name == NULL) {
+    // this check is handeled in Editor
     return -1;
   }
 

@@ -12,6 +12,8 @@
 
 #include <stdbool.h>  // for boolean type
 
+#include <ctype.h>  // for iscntrl
+
 #include "Editor.h"
 #include "TerminalUtils.h"
 #include "Keyboard.h"
@@ -20,7 +22,7 @@
 #include "FileParser.h"
 #include "Quit.h"
 
-// macros
+// --- INTERNAL MACRO CONTANTS --- //
 
 // the size of the welcome message buffer.
 #define BUF_SIZE_WEL 64
@@ -30,6 +32,8 @@
 #define BUF_SIZE_MV 32
 // the size of the command message buffer.
 #define BUF_SIZE_CMD_MSG 64
+// the size of the input buffer for reading response from a prompt.
+#define BUF_SIZE_RESPONSE 256
 // the timeout to display a new message in seconds.
 #define MSG_TIMEOUT 5
 // the current ctek version.
@@ -47,6 +51,8 @@
 
 // the string form of a single space.
 #define SPACE " "
+
+// --- INTERNAL STATE STRUCTURES --- //
 
 // state/position of the cursor. 0 indexed.
 typedef struct {
@@ -94,7 +100,7 @@ typedef struct {
 
 static EditorState e_state;
 
-// static helper functions.
+// --- STATIC HELPER FUNCTION DECLARATIONS --- //
 
 // draw rows of text.
 static void Editor_RenderRows(Buffer *wbuf);
@@ -117,6 +123,11 @@ static void Editor_Save();
 static void Editor_RemoveChar();
 // split the current line at the current cursor position.
 static void Editor_SplitLine();
+// str is expected to contain exactly 1 '%s' to show the built-up response.
+//  with the rest of the prompt string.
+static char *Editor_GetResponse(const char *str);
+
+// --- PUBLIC FUNCTIONS --- //
 
 void Editor_Open(void) {
   // enable raw mode.
@@ -308,6 +319,8 @@ void Editor_Refresh(void) {
   // free the buffer.
   WB_Free(&write_buf);
 }
+
+// --- STATIC HELPER FUNCTION DEFINITIONS --- //
 
 static void Editor_RenderRows(Buffer *wbuf) {
   for (int y = 0; y < e_state.num_rows; y++) {
@@ -599,6 +612,16 @@ static void Editor_RemoveChar() {
 }
 
 static void Editor_Save() {
+  if (e_state.file_name == NULL) {
+    // no current file name exists, so ask for a filename.
+    e_state.file_name = Editor_GetResponse("Enter filename: %s");
+    if (e_state.file_name == NULL) {
+      // the user cancelled the input prompt, so return early.
+      Editor_SetCmdMsg("ABORTED SAVE");
+      return;
+    }
+  }
+
   int res = File_Save(e_state.file_name, &(e_state.file_lines),
                 e_state.num_file_lines);
 
@@ -619,4 +642,64 @@ static void Editor_SplitLine() {
   // set the cursor to one line down and to the start of the line.
   e_state.cursor.row++;
   e_state.cursor.col = 0;
+}
+
+// str is expected to contain exactly 1 '%s' to show the built-up response.
+//  with the rest of the prompt string.
+static char *Editor_GetResponse(const char *str) {
+  // allocate space for the response buffer, which is initialized
+  //  to an empty string.
+  size_t res_buf_size = BUF_SIZE_RESPONSE;
+  char *res_buf = (char *) malloc(res_buf_size);
+  res_buf[0] = '\0';
+  size_t res_buf_len = 0;
+
+  while (true) {
+    // keep showing the prompt until the user finishes entering 
+    //  the response.
+    Editor_SetCmdMsg(str, res_buf);
+    Editor_Refresh();
+
+    // wait for a keypress.
+    int key = Keyboard_ReadKey();
+    if (key == KEY_DELETE || key == KEY_BACKSPACE || key == CHAR_TO_CTRL('h')) {
+      // the user is trying to delete some input.
+      if (res_buf_len != 0) {
+        // decrement the response string size and move the null-terminator
+        //  1 position backwards.
+        res_buf_len--;
+        res_buf[res_buf_len] = '\0';
+      }
+    } if (key == ESC) {
+      // the user pressed ESC to cancel the input dialouge.
+      // clear the prompt, free the buffer, and return NULL.
+      Editor_SetCmdMsg("");
+      free(res_buf);
+      return NULL;
+    } else if (key == KEY_RETURN) {
+      // the user pressed ENTER.
+      if (res_buf_len != 0) {
+        // clear the prompt message before returning the response
+        //  string.
+        Editor_SetCmdMsg("");
+        return res_buf;
+      }
+      // no text was entered, so continue to wait.
+    } else if (!iscntrl(key) && key < 128) {
+      // the key was a printable character, so append it to the buffer.
+      if (res_buf_len >= res_buf_size - 1) {
+        // resize the buffer if it is full. the buffer has to fit '\0'
+        //  at the end, so the length has to be 1 less than the size of the
+        //  current allocated buffer.
+        res_buf_size += BUF_SIZE_RESPONSE;
+      }
+      // set the input character in the buffer and increment the size
+      //  of the response string.
+      res_buf[res_buf_len] = key;
+      res_buf_len++;
+      // null-terminate the new string so the caller can calcualte its
+      //  length.
+      res_buf[res_buf_len] = '\0';
+    }
+  }
 }
