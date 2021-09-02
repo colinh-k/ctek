@@ -126,6 +126,7 @@ static void Editor_SplitLine();
 // str is expected to contain exactly 1 '%s' to show the built-up response.
 //  with the rest of the prompt string.
 static char *Editor_GetResponse(const char *str);
+static void Editor_Find();
 
 // --- PUBLIC FUNCTIONS --- //
 
@@ -228,6 +229,11 @@ void Editor_InterpretKeypress(void) {
     case CHAR_TO_CTRL('s'):
       // save command
       Editor_Save();
+      break;
+
+    case CHAR_TO_CTRL('f'):
+      // search/find command.
+      Editor_Find();
       break;
     
     case KEY_HOME:
@@ -614,7 +620,7 @@ static void Editor_RemoveChar() {
 static void Editor_Save() {
   if (e_state.file_name == NULL) {
     // no current file name exists, so ask for a filename.
-    e_state.file_name = Editor_GetResponse("Enter filename: %s");
+    e_state.file_name = Editor_GetResponse("Enter filename <ESC to cancel>: %s");
     if (e_state.file_name == NULL) {
       // the user cancelled the input prompt, so return early.
       Editor_SetCmdMsg("ABORTED SAVE");
@@ -702,4 +708,29 @@ static char *Editor_GetResponse(const char *str) {
       res_buf[res_buf_len] = '\0';
     }
   }
+}
+
+static void Editor_Find() {
+  char *str = Editor_GetResponse("FIND <ESC to cancel>: %s");
+  if (str == NULL) {
+    // user cancelled prompt.
+    return;
+  }
+
+  SearchResult sr;
+  if (File_SearchFileLines((e_state.file_lines), e_state.num_file_lines,
+                           str, &sr) != -1) {
+    // found a result.
+    e_state.cursor.row = sr.cur_row;
+    // convert from the returned column position in the line field to a
+    //  position in the line_display field of the matching FileLine struct.
+    e_state.cursor.col = File_DispToRawIdx(&(e_state.file_lines[sr.cur_row]),
+                                           sr.cur_col);
+    e_state.cur_file_row = e_state.num_file_lines;
+  } else {
+    // no results, so show a message.
+    Editor_SetCmdMsg("NO results for '%s'", str);
+  }
+
+  free(str);
 }

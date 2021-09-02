@@ -7,6 +7,7 @@
 typedef struct {
   // size of the line of characters.
   int size;
+  // the size of the line_display string.
   int size_display;
   // pointer to a raw line of characters from a file.
   char *line;
@@ -14,6 +15,18 @@ typedef struct {
   //  appropriately displayed on the terminal window.
   char *line_display;
 } FileLine;
+
+typedef struct {
+  // the index of the FileLine struct which contains
+  //  a match.
+  int cur_row;
+  // the index into the line field of the FileLine
+  //  struct with a match.
+  int cur_col;
+  // the index into the line_display field of the FileLine
+  //  struct with a match.
+  // int file_col;// not needed
+} SearchResult;
 
 
 // const unsigned char *File_ToString(FileLine **file_lines, int num_lines,
@@ -37,6 +50,7 @@ void File_FreeLines(FileLine *file_lines, int num_lines);
 //  account for tabs in the line that appear as multiple " " 
 //  in line_display.
 int File_RawToDispIdx(FileLine *f_line, int line_idx);
+int File_DispToRawIdx(FileLine *f_line, int disp_idx);
 
 void File_InsertFileLine(FileLine **f_lines, int *num_lines,
                             const char *str, size_t size,
@@ -61,5 +75,12 @@ void File_RemoveRow(FileLine *f_line, int *num_lines, int idx);
 void File_AppendLine(FileLine *f_line, const char *str, size_t str_size);
 
 void File_SplitLine(FileLine **f_line, int *num_lines, int row, int col);
+
+// Searches the array of FileLines (containing num_lines FileLines) for a
+//  line containing str as a substring. Returns 0 on success, -1 on failure.
+//  Upon success s_res contains the row and column index into the matching
+//  FileLine (see FileParser.h for SearchResult details).
+int File_SearchFileLines(FileLine *f_lines, int num_lines, const char *str,
+                         SearchResult *s_res);
 
 #endif  // FILE_PARSER_H_

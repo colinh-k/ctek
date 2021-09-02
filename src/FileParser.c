@@ -259,6 +259,23 @@ int File_RawToDispIdx(FileLine *f_line, int line_idx) {
   return res;
 }
 
+int File_DispToRawIdx(FileLine *f_line, int disp_idx) {
+  int res = 0;
+  int i;
+  for (i = 0; i < f_line->size; i++) {
+    if (f_line->line[i] == TAB) {
+      res += (TAB_SIZE - 1) - (res % TAB_SIZE);
+    }
+    res++;
+
+    if (res > disp_idx) {
+      return i;
+    }
+  }
+  // the caller gave disp_idx that's out of range (should not happen).
+  return i;
+}
+
 void File_InsertChar(FileLine *f_line, int idx, char new_char) {
   // validate the index.
   // if(idx < 0 || idx > f_line->size) {
@@ -360,4 +377,30 @@ void File_SplitLine(FileLine **f_line, int *num_lines, int row, int col) {
     File_SetLineDisplay(l_ptr);
   }
   // editor should increment row position and set col position to 0.
+}
+
+// Searches the array of FileLines (containing num_lines FileLines) for a
+//  line containing str as a substring. Returns 0 on success, -1 on failure.
+//  Upon success s_res contains the row and column index into the matching
+//  FileLine (see FileParser.h for SearchResult details).
+int File_SearchFileLines(FileLine *f_lines, int num_lines, const char *str,
+                         SearchResult *s_res) {
+  for (int i = 0; i < num_lines; i++) {
+    // alias for current FileLine being searched.
+    FileLine *f_line = &(f_lines[i]);
+    // use strstr to find a substring of the display line containing str.
+    // strstr returns a pointer to the start of the matching substring.
+    char *match_ptr = strstr(f_line->line_display, str);
+    // strstr returns NULL upon finding no matches.
+    if (match_ptr != NULL) {
+      // successful match, so set the output parameter.\
+      // the column number of where the match starts is found with
+      //  poitner arithmetic using the display line as a reference.
+      s_res->cur_col = match_ptr - (f_line->line_display);
+      s_res->cur_row = i;
+      return 0;
+    }
+  }
+  // no matches found.
+  return -1;
 }
