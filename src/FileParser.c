@@ -9,6 +9,8 @@
 #include <unistd.h>  // for close
 #include <stdio.h>
 
+#include <ctype.h>  // for isdigit
+
 // the size of a single tab character in number of spaces (" ").
 #define TAB_SIZE 8
 // a single tab character.
@@ -20,6 +22,8 @@
 
 // static int File_Open(const char *file_name, int *fd, int *size);
 static int validate_idx(int idx, int size);
+// update the highlight field of the given FileLine.
+static void File_SetHighlight(FileLine *f_line);
 
 // Returns a pointer to a string containing all the lines from the given
 //  FileLines array containing num_lines FileLines. The caller is 
@@ -135,6 +139,8 @@ static void File_SetLineDisplay(FileLine *file_line) {
   }
   file_line->line_display[idx_line_disp] = '\0';
   file_line->size_display = idx_line_disp;
+
+  File_SetHighlight(file_line);
 }
 
 // Insert the given string 'str' with the given size 'size'
@@ -167,6 +173,7 @@ void File_InsertFileLine(FileLine **f_lines, int *num_lines,
   // initialize the display line fields.
   (*f_lines)[idx].size_display = 0;
   (*f_lines)[idx].line_display = NULL;
+  (*f_lines)[idx].highlight = NULL;
 
   // initialize the display line for the new FileLine struct.
   File_SetLineDisplay(&((*f_lines)[idx]));
@@ -232,6 +239,7 @@ void File_FreeLines(FileLine *file_lines, int num_lines) {
     // free the line from each FileLine struct.
     free(file_lines[i].line);
     free(file_lines[i].line_display);
+    free(file_lines[i].highlight);
     // fprintf(stderr, "LINE %d: ", i);
     // for (int j = 0; j < file_lines[i].size; j++) {      
     //   fprintf(stderr, "%c", file_lines[i].line[j]);
@@ -403,4 +411,30 @@ int File_SearchFileLines(FileLine *f_lines, int num_lines, const char *str,
   }
   // no matches found.
   return -1;
+}
+
+static void File_SetHighlight(FileLine *f_line) {
+  // resize the highlight buffer, since line_display may have changed.
+  // the highlight array has the same size as line_display.
+  f_line->highlight = realloc(f_line->highlight, f_line->size_display);
+  // set all characters in highlight to default.
+  memset(f_line->highlight, HL_NORMAL, f_line->size_display);
+  
+  // set the color codes for the line_display characters.
+  for (int i = 0; i < f_line->size_display; i++) {
+    if (isdigit(f_line->line_display[i])) {
+      f_line->highlight[i] = HL_NUMBER;
+    }
+  }
+}
+
+int File_GetHighlightCode(int h) {
+  switch (h) {
+    case HL_NUMBER:
+      return 31;
+    case HL_MATCH:
+      return 34;
+    default:
+      return 0;
+  }
 }

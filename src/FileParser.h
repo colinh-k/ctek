@@ -3,6 +3,15 @@
 
 #include <unistd.h>
 
+// the codes representing color types for syntax highlighting.
+//  these define the values a FileLine's highligh array
+//  can contain.
+typedef enum {
+  HL_NORMAL = 0,
+  HL_NUMBER,
+  HL_MATCH
+} Highlight_t;
+
 // struct to store a line of text.
 typedef struct {
   // size of the line of characters.
@@ -14,8 +23,14 @@ typedef struct {
   // the line replaced with characters able to be
   //  appropriately displayed on the terminal window.
   char *line_display;
+  // each value in this char array is between 0 and 255
+  //  and corresponds to a letter in line_display which
+  //  indicates the type of highlighting the character
+  //  should get.
+  unsigned char *highlight;
 } FileLine;
 
+// TODO: replace with a cursor struct.
 typedef struct {
   // the index of the FileLine struct which contains
   //  a match.
@@ -82,5 +97,7 @@ void File_SplitLine(FileLine **f_line, int *num_lines, int row, int col);
 //  FileLine (see FileParser.h for SearchResult details).
 int File_SearchFileLines(FileLine *f_lines, int num_lines, const char *str,
                          SearchResult *s_res);
+
+int File_GetHighlightCode(int h);
 
 #endif  // FILE_PARSER_H_

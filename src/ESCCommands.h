@@ -44,6 +44,20 @@
 //  varidic arguments to build the command.
 #define ESC_CMD_TEXT_FORMAT(type) (ESC_SEQ type "m")
 
+// --- COLORS MACROS --- //
+// text colors
+#define BLK (ESC_SEQ "0;30m")
+#define RED (ESC_SEQ "0;31m")
+#define GRN (ESC_SEQ "0;32m")
+#define YEL (ESC_SEQ "0;33m")
+#define BLU (ESC_SEQ "0;34m")
+#define MAG (ESC_SEQ "0;35m")
+#define CYN (ESC_SEQ "0;36m")
+#define WHT (ESC_SEQ "0;37m")
+
+// default color. always apply to close the color text.
+#define RES (ESC_SEQ "0m")
+
 // Puts an esc command sequence for moving the cursor to the
 //  given row and column in given buffer.
 void Get_ESCCmd_Move(char *buf, int size, int col, int row);

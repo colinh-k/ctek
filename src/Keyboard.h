@@ -25,8 +25,10 @@ typedef enum {
 } Key_t;
 
 // Reads and returns 1 keypress from stdin. Calls quit if
-//  reading fails or times out. Converts escape sequences
+//  reading has a fatal error. Converts escape sequences
 //  to single character constants defined in the above enum.
+//  Returns 0 (the null byte '\0') if read times out before
+//  reading 1 keystroke.
 int Keyboard_ReadKey(void);
 
 #endif  // KEYBOARD_H_

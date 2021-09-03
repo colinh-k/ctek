@@ -34,6 +34,8 @@
 #define BUF_SIZE_CMD_MSG 64
 // the size of the input buffer for reading response from a prompt.
 #define BUF_SIZE_RESPONSE 256
+// the size of a text color command sequence buffer.
+#define BUF_SIZE_COLOR 16
 // the timeout to display a new message in seconds.
 #define MSG_TIMEOUT 5
 // the current ctek version.
@@ -123,9 +125,13 @@ static void Editor_Save();
 static void Editor_RemoveChar();
 // split the current line at the current cursor position.
 static void Editor_SplitLine();
+// a callback function for the prompt response function. pass in the
+//  current response string and the last key that was pressed.
+typedef void (*AwaitPromptFn)(char *, int);
+static void Editor_FindCallback(char *str, int key);
 // str is expected to contain exactly 1 '%s' to show the built-up response.
 //  with the rest of the prompt string.
-static char *Editor_GetResponse(const char *str);
+static char *Editor_GetResponse(const char *str, AwaitPromptFn ap_fn);
 static void Editor_Find();
 
 // --- PUBLIC FUNCTIONS --- //
@@ -207,7 +213,9 @@ void Editor_InterpretKeypress(void) {
 
     case KEY_RETURN:
       // split the line at the cursor's current location.
-      fprintf(stderr, "ENTER PRESSED\n");
+      // inserting newlines with return indicates the file has been 
+      //  edited.
+      e_state.is_edited = true;
       Editor_SplitLine();
       break;
     
@@ -224,6 +232,7 @@ void Editor_InterpretKeypress(void) {
 
     case CHAR_TO_CTRL('l'):
     case KEY_ESC:
+      // no-op on ESC.
       break;
 
     case CHAR_TO_CTRL('s'):
@@ -274,6 +283,9 @@ void Editor_InterpretKeypress(void) {
       break;
 
     case '!':
+      // if ctrl-q was pressed on the last keystroke, quit upon
+      //  recieving the force command. otherwise, print the
+      //  literal force character, in this case '!'.
       if (e_state.is_edited && pressed_quit) {
         exit(EXIT_SUCCESS);
       }
@@ -328,6 +340,52 @@ void Editor_Refresh(void) {
 
 // --- STATIC HELPER FUNCTION DEFINITIONS --- //
 
+static void Editor_RenderRow(Buffer *wbuf, int disp_line) {
+  // calculate how much of the row to show by subtracting the 
+  //  column position in the file from the size of the line.
+  int size = e_state.file_lines[disp_line].size_display - e_state.cur_file_col;
+    if (size < 0) {
+      // scrolled too far over to view any chars from this line.
+      size = 0;
+    }
+    if (size > e_state.num_cols) {
+      size = e_state.num_cols;
+    }
+
+    // alias for the current display line.
+    char *line = &(e_state.file_lines[disp_line].line_display[e_state.cur_file_col]);
+    // alias for the current highligh array line.
+    unsigned char *h_line = &(e_state.file_lines[disp_line].highlight[e_state.cur_file_col]);
+    // track the current text color to avoid changing color sequences on every write.
+    // -1 indicates default color.
+    int cur_color = -1;
+
+    for (int i = 0; i < size; i++) {
+      if (h_line[i] == HL_NORMAL) {
+        if (cur_color != -1) {
+          // reset the text color to default.
+          WB_AppendESCCmd(wbuf, RES);
+          cur_color = -1;
+        }
+        // append a single character.
+        WB_Append(wbuf, &(line[i]), 1);
+      } else {
+        int color = File_GetHighlightCode(h_line[i]);
+        if (color != cur_color) {
+          // a new color, so set the text color with the new code.
+          cur_color = color;
+          char buf[BUF_SIZE_COLOR];
+          int color_size = snprintf(buf, BUF_SIZE_COLOR, ESC_SEQ "%dm", color);
+          WB_Append(wbuf, buf, color_size);
+        }
+        // append the character.
+        WB_Append(wbuf, &(line[i]), 1);
+      }
+    }
+    // reset the text color for the rest of the output.
+    WB_AppendESCCmd(wbuf, RES);
+}
+
 static void Editor_RenderRows(Buffer *wbuf) {
   for (int y = 0; y < e_state.num_rows; y++) {
     // calculate the file line to display on the current screen row.
@@ -343,18 +401,31 @@ static void Editor_RenderRows(Buffer *wbuf) {
       }
     } else {
       // drawing a row that is part of the text buffer.
+      Editor_RenderRow(wbuf, disp_line);
       // calculate how much of the row to show by subtracting the 
       //  column position in the file from the size of the line.
-      int size = e_state.file_lines[disp_line].size_display - e_state.cur_file_col;
-      if (size < 0) {
-        // scrolled to far over to view any chars from this line.
-        size = 0;
-      }
-      if (size > e_state.num_cols) {
-        size = e_state.num_cols;
-      }
-      WB_Append(wbuf,                 (&(e_state.file_lines[disp_line].line_display[e_state.cur_file_col])),
-                size);
+      // int size = e_state.file_lines[disp_line].size_display - e_state.cur_file_col;
+      // if (size < 0) {
+      //   // scrolled too far over to view any chars from this line.
+      //   size = 0;
+      // }
+      // if (size > e_state.num_cols) {
+      //   size = e_state.num_cols;
+      // }
+
+      // char *line = &(e_state.file_lines[disp_line].line_display[e_state.cur_file_col]);
+      // for (int i = 0; i < size; i++) {
+      //   if (isdigit(line[i])) {
+      //     WB_AppendESCCmd(wbuf, RED);
+      //     WB_Append(wbuf, &(line[i]), 1);
+      //     WB_AppendESCCmd(wbuf, RES);
+      //   } else {
+      //     WB_Append(wbuf, &(line[i]), 1);
+      //   }
+      // }
+
+      // WB_Append(wbuf, (&(e_state.file_lines[disp_line].line_display[e_state.cur_file_col])),
+      //           size);
     }
 
     // clear the line to the end.
@@ -620,7 +691,8 @@ static void Editor_RemoveChar() {
 static void Editor_Save() {
   if (e_state.file_name == NULL) {
     // no current file name exists, so ask for a filename.
-    e_state.file_name = Editor_GetResponse("Enter filename <ESC to cancel>: %s");
+    // do not use the callback in *_GetResponse.
+    e_state.file_name = Editor_GetResponse("Enter filename <ESC to cancel>: %s", NULL);
     if (e_state.file_name == NULL) {
       // the user cancelled the input prompt, so return early.
       Editor_SetCmdMsg("ABORTED SAVE");
@@ -652,7 +724,7 @@ static void Editor_SplitLine() {
 
 // str is expected to contain exactly 1 '%s' to show the built-up response.
 //  with the rest of the prompt string.
-static char *Editor_GetResponse(const char *str) {
+static char *Editor_GetResponse(const char *str, AwaitPromptFn ap_fn) {
   // allocate space for the response buffer, which is initialized
   //  to an empty string.
   size_t res_buf_size = BUF_SIZE_RESPONSE;
@@ -676,10 +748,15 @@ static char *Editor_GetResponse(const char *str) {
         res_buf_len--;
         res_buf[res_buf_len] = '\0';
       }
-    } if (key == ESC) {
+    } else if (key == KEY_ESC) {
       // the user pressed ESC to cancel the input dialouge.
       // clear the prompt, free the buffer, and return NULL.
       Editor_SetCmdMsg("");
+      // each time a printable key is pressed, run the callback with the
+      //  latest keypress.
+      if (ap_fn != NULL) {
+        ap_fn(res_buf, key);
+      }
       free(res_buf);
       return NULL;
     } else if (key == KEY_RETURN) {
@@ -688,6 +765,11 @@ static char *Editor_GetResponse(const char *str) {
         // clear the prompt message before returning the response
         //  string.
         Editor_SetCmdMsg("");
+        // each time a printable key is pressed, run the callback with the
+        //  latest keypress.
+        if (ap_fn != NULL) {
+          ap_fn(res_buf, key);
+        }
         return res_buf;
       }
       // no text was entered, so continue to wait.
@@ -707,30 +789,121 @@ static char *Editor_GetResponse(const char *str) {
       //  length.
       res_buf[res_buf_len] = '\0';
     }
+
+    if (ap_fn != NULL) {
+      ap_fn(res_buf, key);
+    }
   }
 }
 
 static void Editor_Find() {
-  char *str = Editor_GetResponse("FIND <ESC to cancel>: %s");
-  if (str == NULL) {
-    // user cancelled prompt.
-    return;
-  }
+  // save the current cursor position to return to upon leaving search mode.
+  Cursor og_cursor = e_state.cursor;
+  int og_file_col = e_state.cur_file_col;
+  int og_file_row = e_state.cur_file_row;
 
-  SearchResult sr;
-  if (File_SearchFileLines((e_state.file_lines), e_state.num_file_lines,
-                           str, &sr) != -1) {
-    // found a result.
-    e_state.cursor.row = sr.cur_row;
-    // convert from the returned column position in the line field to a
-    //  position in the line_display field of the matching FileLine struct.
-    e_state.cursor.col = File_DispToRawIdx(&(e_state.file_lines[sr.cur_row]),
-                                           sr.cur_col);
-    e_state.cur_file_row = e_state.num_file_lines;
+  char *str = Editor_GetResponse("FIND <ESC to cancel>: %s", Editor_FindCallback);
+  if (str != NULL) {
+    // pressed RETURN to leave search.
+    free(str);
   } else {
-    // no results, so show a message.
-    Editor_SetCmdMsg("NO results for '%s'", str);
+    // pressed ESC to leave search, so restore the original cursor location.
+    e_state.cursor = og_cursor;
+    e_state.cur_file_col = og_file_col;
+    e_state.cur_file_row = og_file_row;
+  }
+}
+
+static void Editor_FindCallback(char *str, int key) {
+  // index of previous row containing a match: -1 if no match.
+  static int prev_match_row = -1;
+  static int direction = 1;
+
+  // save the current highlight code to restore later.
+  // the index of the FileLine that has a highlight line that
+  //  needs to be restored.
+  static int h_line_idx;
+  // a copy of the FileLine highlight array to restore later.
+  // NULL when nothing needs to be restored.
+  static char *h_line_og = NULL;
+
+  // NOTE: it is impossible for the user to modify the file while
+  //  searching, so h_line_idx can be used as an index into
+  //  the FileLine array safely.
+
+  if (h_line_og != NULL) {
+    // there was a highlight array to restore.
+    // copy the saved highlight array into the current FileLine's highlight
+    //  field
+    memcpy(e_state.file_lines[h_line_idx].highlight, h_line_og,
+           e_state.file_lines[h_line_idx].size_display);
+    // free and reset the allocated saved highlight array.
+    free(h_line_og);
+    h_line_og = NULL;
   }
 
-  free(str);
+  // set prev_match_row to -1 if an arrow key was not pressed, so advances
+  //  are only made upon pressing an arrow key. always proceed forward
+  //  unless the back keys are pressed.
+  if (key == KEY_RETURN || key == KEY_ESC) {
+    // return early if the user entered return or esc (cancel).
+    prev_match_row = -1;
+    direction = 1;
+    return;
+  } else if (key == KEY_ARROW_RIGHT || key == KEY_ARROW_DOWN) {
+    // moving forward through results.
+    direction = 1;
+  } else if (key == KEY_ARROW_LEFT || key == KEY_ARROW_UP) {
+    // moving backwards through results.
+    direction = -1;
+  } else {
+    prev_match_row = -1;
+    direction = 1;
+  }
+
+  if (prev_match_row == -1) {
+    // go forward if there was no previous match.
+    direction = 1;
+  }
+
+  // index of the line currently being searched.
+  int cur_match_row = prev_match_row;
+
+  for (int i = 0; i < e_state.num_file_lines; i++) {
+    cur_match_row += direction;
+    if (cur_match_row == -1) {
+      // at the top, so wrap to the bottom and continue searching.
+      cur_match_row = e_state.num_file_lines - 1;
+    } else if (cur_match_row == e_state.num_file_lines) {
+      // at the bottom, so wrap to the top and continue searching.
+      cur_match_row = 0;
+    }
+
+    // alias for current FileLine being searched.
+    FileLine *f_line = &(e_state.file_lines[cur_match_row]);
+    // use strstr to find a substring of the display line containing str.
+    // strstr returns a pointer to the start of the matching substring.
+    char *match_ptr = strstr(f_line->line_display, str);
+    // strstr returns NULL upon finding no matches.
+    if (match_ptr != NULL) {
+      // successful match.
+      // start the next search from this new matched row.
+      prev_match_row = cur_match_row;
+      // the column number of where the match starts is found with
+      //  poitner arithmetic using the display line as a reference.
+      e_state.cursor.col = File_DispToRawIdx(f_line, match_ptr - (f_line->line_display));
+      e_state.cursor.row = cur_match_row;
+      e_state.cur_file_row = e_state.num_file_lines;
+
+
+      h_line_idx = cur_match_row;
+      h_line_og = malloc(f_line->size_display);
+      memcpy(h_line_og, f_line->highlight, f_line->size_display);
+      // highlight the result by setting the cooresponding values of the highlight
+      //  array to the HL_MATCH color
+      memset(&(f_line->highlight[match_ptr - (f_line->line_display)]), HL_MATCH, strlen(str));
+      break;
+    }
+  }
+  // no matches found.
 }
