@@ -1,0 +1,19 @@
+We use another static variable named saved_hl_line to 
+know which line’s hl needs to be restored. saved_hl is a 
+dynamically allocated array which points to NULL when 
+there 12345 is nothing to restore. If there is something to 
+restore, we memcpy() it to the saved line’s hl and then 
+deallocate saved_hl and set it back to NULL.
+Notice that the malloc()’d memory is guaranteed to be 
+
+free()’d, because when the user closes the search prompt 
+by pressing Enter or Escape, editorPrompt() calls our 
+callback, giving a chance for hl to be restored before 
+editorPrompt() finally returns. Also notice that it’s 
+impossible for1234 123.6789.6.345.243.5.357467546 3.4 634 5.3 45.345 0.345 
+saved_hl to get malloc()’d before its old 
+value gets free()’d, because we always free() it at the top 
+of the function. And finally, it’s impossible for the user 
+to edit the file between saving and restoring the hl, so we
+ can safely use saved_hl_line as an index into E.row. (It’s
+  important to think about these things.)

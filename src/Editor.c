@@ -21,6 +21,7 @@
 #include "ESCCommands.h"
 #include "FileParser.h"
 #include "Quit.h"
+#include "SyntaxHL.h"
 
 // --- INTERNAL MACRO CONTANTS --- //
 
@@ -98,6 +99,8 @@ typedef struct {
   // true if the editor has changed some text that has not
   //  been saved in the file; false otherwise.
   bool is_edited;
+  // syntax information about the open file.
+  Syntax *syntax;
 } EditorState;
 
 static EditorState e_state;
@@ -158,6 +161,8 @@ void Editor_Open(void) {
   e_state.msg_line[0] = '\0';
   // initially, the editor and file have the same contents.
   e_state.is_edited = false;
+  // no file yet, so no filetype-specific syntax information yet.
+  e_state.syntax = NULL;
 
   // get the size of the terminal window.
   int res = Term_Size(&e_state.num_rows, &e_state.num_cols);
@@ -355,7 +360,7 @@ static void Editor_RenderRow(Buffer *wbuf, int disp_line) {
     // alias for the current display line.
     char *line = &(e_state.file_lines[disp_line].line_display[e_state.cur_file_col]);
     // alias for the current highligh array line.
-    unsigned char *h_line = &(e_state.file_lines[disp_line].highlight[e_state.cur_file_col]);
+    Highlight_t *h_line = &(e_state.file_lines[disp_line].highlight[e_state.cur_file_col]);
     // track the current text color to avoid changing color sequences on every write.
     // -1 indicates default color.
     int cur_color = -1;
@@ -525,8 +530,10 @@ void Editor_InitFromFile(const char *file_name) {
   free(e_state.file_name);
   // strdup malloc's memory for the string copy.
   e_state.file_name = strdup(file_name);
+  // set up the syntax information.
+  Syntax_LangFromFile(e_state.file_name, &(e_state.syntax));
   // read in the lines from the file.
-  e_state.file_lines = File_GetLines(file_name, &(e_state.num_file_lines));
+  e_state.file_lines = File_GetLines(file_name, &(e_state.num_file_lines), e_state.syntax);
 }
 
 static void Editor_Scroll(void) {
@@ -579,10 +586,13 @@ static void Editor_RenderStatusBar(Buffer *wbuf) {
     status_size_left = e_state.num_cols;
   }
 
+  // show the filetype on the right of the status bar.
+  char *file_type = (e_state.syntax == NULL) ? "N/A" : e_state.syntax->language;
   // print the current line number out of total lines.
   // e_state.cursor.row is 0 indexed, so add 1 to the displayed value.
   int status_size_right = snprintf(status_line_right, BUF_SIZE_STATUS,
-                                   "<%d> | <%d>",
+                                   "<%s> | <%d> | <%d>",
+                                   file_type,
                                    e_state.cursor.row + 1,
                                    e_state.num_file_lines);
 
@@ -644,10 +654,12 @@ static void Editor_InsertChar(char new_char) {
     //  array of file lines.
     File_InsertFileLine(&(e_state.file_lines),
                         &(e_state.num_file_lines), "", 0,
-                        e_state.num_file_lines);
+                        e_state.num_file_lines,
+                        e_state.syntax);
   }
   File_InsertChar(&(e_state.file_lines[e_state.cursor.row]),
-                  e_state.cursor.col, new_char);
+                  e_state.cursor.col, new_char,
+                  e_state.syntax);
   // move the cursor 1 column to the right so the next character inserted
   //  is on a different space.
   e_state.cursor.col++;
@@ -670,7 +682,8 @@ static void Editor_RemoveChar() {
     // on a line with a char to the left of the cursor,
     //  so delete it.
     File_RemoveChar(&(e_state.file_lines[e_state.cursor.row]),
-                    e_state.cursor.col - 1);
+                    e_state.cursor.col - 1,
+                    e_state.syntax);
     // move the cursor back by 1 column.
     e_state.cursor.col--;
     // record that the file has been changed in the editor.
@@ -682,7 +695,8 @@ static void Editor_RemoveChar() {
     e_state.cursor.col = e_state.file_lines[e_state.cursor.row - 1].size;
     File_AppendLine(&(e_state.file_lines[e_state.cursor.row - 1]),
                     e_state.file_lines[e_state.cursor.row].line,
-                    e_state.file_lines[e_state.cursor.row].size);
+                    e_state.file_lines[e_state.cursor.row].size,
+                    e_state.syntax);
     File_RemoveRow(e_state.file_lines, &(e_state.num_file_lines), e_state.cursor.row);
     e_state.cursor.row--;
   }
@@ -698,6 +712,8 @@ static void Editor_Save() {
       Editor_SetCmdMsg("ABORTED SAVE");
       return;
     }
+    // a new filename was specified, so update the file syntax.
+    Syntax_LangFromFile(e_state.file_name, &(e_state.syntax));
   }
 
   int res = File_Save(e_state.file_name, &(e_state.file_lines),
@@ -716,7 +732,8 @@ static void Editor_Save() {
 
 static void Editor_SplitLine() {
   File_SplitLine(&(e_state.file_lines), &(e_state.num_file_lines),
-                 e_state.cursor.row, e_state.cursor.col);
+                 e_state.cursor.row, e_state.cursor.col,
+                 e_state.syntax);
   // set the cursor to one line down and to the start of the line.
   e_state.cursor.row++;
   e_state.cursor.col = 0;
@@ -895,8 +912,9 @@ static void Editor_FindCallback(char *str, int key) {
       e_state.cursor.row = cur_match_row;
       e_state.cur_file_row = e_state.num_file_lines;
 
-
+      // save the FileLine whose highlight line is being modified.
       h_line_idx = cur_match_row;
+      // allocate space for the saved highlight line and copy it.
       h_line_og = malloc(f_line->size_display);
       memcpy(h_line_og, f_line->highlight, f_line->size_display);
       // highlight the result by setting the cooresponding values of the highlight

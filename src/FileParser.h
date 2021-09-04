@@ -2,15 +2,7 @@
 #define FILE_PARSER_H_
 
 #include <unistd.h>
-
-// the codes representing color types for syntax highlighting.
-//  these define the values a FileLine's highligh array
-//  can contain.
-typedef enum {
-  HL_NORMAL = 0,
-  HL_NUMBER,
-  HL_MATCH
-} Highlight_t;
+#include "SyntaxHL.h"
 
 // struct to store a line of text.
 typedef struct {
@@ -27,7 +19,7 @@ typedef struct {
   //  and corresponds to a letter in line_display which
   //  indicates the type of highlighting the character
   //  should get.
-  unsigned char *highlight;
+  Highlight_t *highlight;
 } FileLine;
 
 // TODO: replace with a cursor struct.
@@ -56,7 +48,7 @@ int File_Save(const char *file_name, FileLine **file_lines,
 
 // Returns a malloc'ed array of FileLines from the given file, delimiting on
 //  \n and \r. Client must call File_FreeLines later.
-FileLine *File_GetLines(const char *file_name, int *size);
+FileLine *File_GetLines(const char *file_name, int *size, Syntax *syntax);
 
 void File_FreeLines(FileLine *file_lines, int num_lines);
 
@@ -69,12 +61,12 @@ int File_DispToRawIdx(FileLine *f_line, int disp_idx);
 
 void File_InsertFileLine(FileLine **f_lines, int *num_lines,
                             const char *str, size_t size,
-                            int idx);
+                            int idx, Syntax *syntax);
 
-void File_InsertChar(FileLine *f_line, int idx, char new_char);
+void File_InsertChar(FileLine *f_line, int idx, char new_char, Syntax *syntax);
 
 // see editor_removechar
-void File_RemoveChar(FileLine *f_line, int idx);
+void File_RemoveChar(FileLine *f_line, int idx, Syntax *syntax);
 
 // free the malloc'ed buffers in the FileLine. The memory for f_line
 //  is unaffected by this function.
@@ -87,9 +79,9 @@ void File_RemoveRow(FileLine *f_line, int *num_lines, int idx);
 
 // Append the given string str of size str_size to the end of f_line's
 //  line field.
-void File_AppendLine(FileLine *f_line, const char *str, size_t str_size);
+void File_AppendLine(FileLine *f_line, const char *str, size_t str_size, Syntax *syntax);
 
-void File_SplitLine(FileLine **f_line, int *num_lines, int row, int col);
+void File_SplitLine(FileLine **f_line, int *num_lines, int row, int col, Syntax *syntax);
 
 // Searches the array of FileLines (containing num_lines FileLines) for a
 //  line containing str as a substring. Returns 0 on success, -1 on failure.
@@ -97,7 +89,5 @@ void File_SplitLine(FileLine **f_line, int *num_lines, int row, int col);
 //  FileLine (see FileParser.h for SearchResult details).
 int File_SearchFileLines(FileLine *f_lines, int num_lines, const char *str,
                          SearchResult *s_res);
-
-int File_GetHighlightCode(int h);
 
 #endif  // FILE_PARSER_H_

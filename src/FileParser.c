@@ -9,6 +9,10 @@
 #include <unistd.h>  // for close
 #include <stdio.h>
 
+#include "SyntaxHL.h"
+
+#include <stdbool.h>  // for boolean type
+
 #include <ctype.h>  // for isdigit
 
 // the size of a single tab character in number of spaces (" ").
@@ -22,8 +26,6 @@
 
 // static int File_Open(const char *file_name, int *fd, int *size);
 static int validate_idx(int idx, int size);
-// update the highlight field of the given FileLine.
-static void File_SetHighlight(FileLine *f_line);
 
 // Returns a pointer to a string containing all the lines from the given
 //  FileLines array containing num_lines FileLines. The caller is 
@@ -114,7 +116,7 @@ static int StrCount(const char *str, int size, char target) {
 // Copies the file_line's line into its line_display and replaces
 //  all non-renderable characters (like tabs) with appropriate
 //  substitutes (like " " (spaces) for tabs).
-static void File_SetLineDisplay(FileLine *file_line) {
+static void File_SetLineDisplay(FileLine *file_line, Syntax *syntax) {
   // find how much memory to allocate for tab conversion.
   int num_tabs = StrCount(file_line->line, file_line->size, TAB);
 
@@ -140,7 +142,8 @@ static void File_SetLineDisplay(FileLine *file_line) {
   file_line->line_display[idx_line_disp] = '\0';
   file_line->size_display = idx_line_disp;
 
-  File_SetHighlight(file_line);
+  Syntax_SetHighlight(syntax, file_line->line_display,
+                      file_line->size_display, &(file_line->highlight));
 }
 
 // Insert the given string 'str' with the given size 'size'
@@ -150,7 +153,7 @@ static void File_SetLineDisplay(FileLine *file_line) {
 //  'num_lines' is incremented by 1 after the operation.
 void File_InsertFileLine(FileLine **f_lines, int *num_lines,
                             const char *str, size_t size,
-                            int idx) {
+                            int idx, Syntax *syntax) {
   if (idx < 0 || idx > *num_lines) {
     return;
   }
@@ -176,12 +179,12 @@ void File_InsertFileLine(FileLine **f_lines, int *num_lines,
   (*f_lines)[idx].highlight = NULL;
 
   // initialize the display line for the new FileLine struct.
-  File_SetLineDisplay(&((*f_lines)[idx]));
+  File_SetLineDisplay(&((*f_lines)[idx]), syntax);
 
   (*num_lines)++;
 }
 
-FileLine *File_GetLines(const char *file_name, int *size) {
+FileLine *File_GetLines(const char *file_name, int *size, Syntax *syntax) {
   // read in a single line from the given file.
   // returns a buffer up to the first \r or \n in the file.
   FILE *f_ptr = fopen(file_name, "r");
@@ -210,7 +213,7 @@ FileLine *File_GetLines(const char *file_name, int *size) {
       line_size--;
     }
     // inser the new FileLine at the end of the array.
-    File_InsertFileLine(&lines, &num_lines, line, line_size, num_lines);
+    File_InsertFileLine(&lines, &num_lines, line, line_size, num_lines, syntax);
   }
 
   // set the output parameters with the number of lines read.
@@ -284,7 +287,7 @@ int File_DispToRawIdx(FileLine *f_line, int disp_idx) {
   return i;
 }
 
-void File_InsertChar(FileLine *f_line, int idx, char new_char) {
+void File_InsertChar(FileLine *f_line, int idx, char new_char, Syntax *syntax) {
   // validate the index.
   // if(idx < 0 || idx > f_line->size) {
   //   idx = f_line->size;
@@ -305,17 +308,17 @@ void File_InsertChar(FileLine *f_line, int idx, char new_char) {
   f_line->line[idx] = new_char;
 
   // update the line_display field to account for the new character.
-  File_SetLineDisplay(f_line);
+  File_SetLineDisplay(f_line, syntax);
 }
 
-void File_RemoveChar(FileLine *f_line, int idx) {
+void File_RemoveChar(FileLine *f_line, int idx, Syntax *syntax) {
   idx = validate_idx(idx, f_line->size);
   // move over the characters to the right of idx by one space to the left
   //  (including '\0').
   memmove(&(f_line->line[idx]), &(f_line->line[idx + 1]),
           f_line->size - idx);
   f_line->size--;
-  File_SetLineDisplay(f_line);
+  File_SetLineDisplay(f_line, syntax);
 }
 
 // free the malloc'ed buffers in the FileLine.
@@ -343,7 +346,7 @@ static int validate_idx(int idx, int size) {
   return (idx < 0 || idx > size) ? size : idx;
 }
 
-void File_AppendLine(FileLine *f_line, const char *str, size_t str_size) {
+void File_AppendLine(FileLine *f_line, const char *str, size_t str_size, Syntax *syntax) {
   // make room for the new string to append to f_line's line buffer.
   f_line->line = realloc(f_line->line, f_line->size + str_size + 1);
   // copy over the new string to f_line's line buffer.
@@ -352,7 +355,7 @@ void File_AppendLine(FileLine *f_line, const char *str, size_t str_size) {
   f_line->size += str_size;
   f_line->line[f_line->size] = '\0';  // null-terminate the new line string.
   // update the line_display field from the new line string.
-  File_SetLineDisplay(f_line);
+  File_SetLineDisplay(f_line, syntax);
 }
 
 // Split the FileLine at position row in the given FileLine array
@@ -361,19 +364,19 @@ void File_AppendLine(FileLine *f_line, const char *str, size_t str_size) {
 //  num_lines is the number of FileLines in the f_line array.
 //  After returning, num_lines is incremented, since a new
 //  FileLine was added to the array.
-void File_SplitLine(FileLine **f_line, int *num_lines, int row, int col) {
+void File_SplitLine(FileLine **f_line, int *num_lines, int row, int col, Syntax *syntax) {
   if (col == 0) {
     // at the start of a line.
     // insert a brand new empty FileLine at position row 
     //  (above the current row).
-    File_InsertFileLine(f_line, num_lines, "", strlen(""), row);
+    File_InsertFileLine(f_line, num_lines, "", strlen(""), row, syntax);
   } else {
     // alias for a FileLine to split in the array.
     FileLine *l_ptr = &((*f_line)[row]);
     // create a new line below the current cursor-highlighted line
     //  which contains the characters to the right of the cursor.
     File_InsertFileLine(f_line, num_lines, &(l_ptr->line[col]),
-                        l_ptr->size - col, row + 1);
+                        l_ptr->size - col, row + 1, syntax);
     // realloc in File_InsertFileLine might invalidate l_ptr,
     //  so reassign it here.
     l_ptr = &((*f_line)[row]);
@@ -382,7 +385,7 @@ void File_SplitLine(FileLine **f_line, int *num_lines, int row, int col) {
     // null-terminate the new line string.
     l_ptr->line[l_ptr->size] = '\0';
     // update the diaply line according to the new line.
-    File_SetLineDisplay(l_ptr);
+    File_SetLineDisplay(l_ptr, syntax);
   }
   // editor should increment row position and set col position to 0.
 }
@@ -413,28 +416,3 @@ int File_SearchFileLines(FileLine *f_lines, int num_lines, const char *str,
   return -1;
 }
 
-static void File_SetHighlight(FileLine *f_line) {
-  // resize the highlight buffer, since line_display may have changed.
-  // the highlight array has the same size as line_display.
-  f_line->highlight = realloc(f_line->highlight, f_line->size_display);
-  // set all characters in highlight to default.
-  memset(f_line->highlight, HL_NORMAL, f_line->size_display);
-  
-  // set the color codes for the line_display characters.
-  for (int i = 0; i < f_line->size_display; i++) {
-    if (isdigit(f_line->line_display[i])) {
-      f_line->highlight[i] = HL_NUMBER;
-    }
-  }
-}
-
-int File_GetHighlightCode(int h) {
-  switch (h) {
-    case HL_NUMBER:
-      return 31;
-    case HL_MATCH:
-      return 34;
-    default:
-      return 0;
-  }
-}
