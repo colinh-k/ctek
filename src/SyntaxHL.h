@@ -39,8 +39,8 @@ void Syntax_LangFromFile(const char *file_name, Syntax **syntax);
 //  given line (length l_size) into the given h_line 
 //  according to the given syntax.
 void Syntax_SetHighlight(Syntax *syntax, char *line,
-                         int l_size, Highlight_t **h_line);
+                         int l_size, unsigned char **h_line);
 
-int File_GetHighlightCode(Highlight_t h);
+int File_GetHighlightCode(unsigned char h);
 
 #endif  // SYNTAX_HL_H_

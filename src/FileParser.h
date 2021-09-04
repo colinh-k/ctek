@@ -19,7 +19,7 @@ typedef struct {
   //  and corresponds to a letter in line_display which
   //  indicates the type of highlighting the character
   //  should get.
-  Highlight_t *highlight;
+  unsigned char *highlight;
 } FileLine;
 
 // TODO: replace with a cursor struct.

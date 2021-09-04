@@ -19,7 +19,7 @@ Syntax langs[] = {
 // the length of the languages array.
 #define NUM_LANGS (sizeof(langs) / sizeof(Syntax))
 
-int File_GetHighlightCode(Highlight_t h) {
+int File_GetHighlightCode(unsigned char h) {
   switch (h) {
     case HL_NUMBER:
       return 31;
@@ -40,7 +40,7 @@ static bool Is_Separator(char c) {
 //  given line (length l_size) into the given h_line 
 //  according to the given syntax.
 void Syntax_SetHighlight(Syntax *syntax, char *line,
-                         int l_size, Highlight_t **h_line) {
+                         int l_size, unsigned char **h_line) {
   // resize the highlight buffer, since line_display may have changed.
   // the highlight array has the same size as line_display.
   *h_line = realloc(*h_line, l_size);

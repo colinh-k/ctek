@@ -1,3 +1,6 @@
+// test feature macro
+#define _XOPEN_SOURCE 600
+
 #include <errno.h>
 #include <stdlib.h>
 #include <string.h>
@@ -360,7 +363,7 @@ static void Editor_RenderRow(Buffer *wbuf, int disp_line) {
     // alias for the current display line.
     char *line = &(e_state.file_lines[disp_line].line_display[e_state.cur_file_col]);
     // alias for the current highligh array line.
-    Highlight_t *h_line = &(e_state.file_lines[disp_line].highlight[e_state.cur_file_col]);
+    unsigned char *h_line = &(e_state.file_lines[disp_line].highlight[e_state.cur_file_col]);
     // track the current text color to avoid changing color sequences on every write.
     // -1 indicates default color.
     int cur_color = -1;
