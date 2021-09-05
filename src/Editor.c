@@ -42,6 +42,11 @@
 #define BUF_SIZE_COLOR 16
 // the timeout to display a new message in seconds.
 #define MSG_TIMEOUT 5
+// the char after which alphabet characters are coded. i.e.,
+//  chars > '@' begin the capital alphabet chars in ASCII.
+#define ALPHA_OFFSET_CHAR '@'
+// the number cooresponding to the last ASCII control char.
+#define CTRL_CHAR_OFFSET 26
 // the current ctek version.
 #define VERSION "1.0"
 
@@ -369,7 +374,16 @@ static void Editor_RenderRow(Buffer *wbuf, int disp_line) {
     int cur_color = -1;
 
     for (int i = 0; i < size; i++) {
-      if (h_line[i] == HL_NORMAL) {
+      if (iscntrl(line[i])) {
+        // if the char is a control char, print the cooresponding
+        //  capital ctrl letter with inverted colors. e.g. ctrl-A -> A
+        //  ctrl-@ -> @ is the null (0) ctrl char.
+        char cntrl_char = (line[i] <= CTRL_CHAR_OFFSET) ?
+                          ALPHA_OFFSET_CHAR + line[i] : '?';
+        WB_AppendESCCmd(wbuf, ESC_CMD_TEXT_FORMAT(INVERT));
+        WB_Append(wbuf, &cntrl_char, 1);
+        WB_AppendESCCmd(wbuf, ESC_CMD_TEXT_FORMAT(RESET INVERT));
+      } else if (h_line[i] == HL_NORMAL) {
         if (cur_color != -1) {
           // reset the text color to default.
           WB_AppendESCCmd(wbuf, RES);

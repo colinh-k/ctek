@@ -38,6 +38,9 @@
 #define BOLD "1"
 #define UNDERSCORE "4"
 #define BLINK "5"
+// use before any text format type to reset the subsequent
+//  format type. e.g., "RESET INVERT" -> undo INVERT mode
+#define RESET "2"
 // sets formatting of terminal text to the given type.
 // 'm' command accepts ESC[1;4;5m as a command for selecting
 //  multiple formats at once. TODO: consider rewriting with
