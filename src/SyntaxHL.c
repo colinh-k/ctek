@@ -8,11 +8,21 @@
 // null-terminate the array of extensions.
 static char *EXTENSIONS_C[] = {".c", ".h", "\0"};
 
+static char *KEYWORDS_C[] = {
+  "switch", "if", "while", "for", "break", "continue", "return", "else",
+  "struct", "union", "typedef", "static", "enum", "class", "case",
+
+  "int|", "long|", "double|", "float|", "char|", "unsigned|", "signed|",
+  "void|", NULL
+};
+
 Syntax langs[] = {
   {
     "c",
     EXTENSIONS_C,
-    HIGHLIGHT_NUMBERS
+    "//",
+    KEYWORDS_C,
+    HIGHLIGHT_NUMBERS | HIGHLIGHT_STRINGS
   }
 };
 
@@ -23,6 +33,14 @@ int File_GetHighlightCode(unsigned char h) {
   switch (h) {
     case HL_NUMBER:
       return 31;
+    case HL_STRING:
+      return 35;
+    case HL_COMMENT:
+      return 36;
+    case HL_KEYWORD1:
+      return 32;
+    case HL_KEYWORD2:
+      return 33;
     case HL_MATCH:
       return 34;
     default:
@@ -53,10 +71,22 @@ void Syntax_SetHighlight(Syntax *syntax, char *line,
     return;
   }
 
+  // alias for the single line comment delimiter.
+  char *cd_single = syntax->comment_delim_single;
+  int cd_single_size = (cd_single != NULL) ? strlen(cd_single) : 0;
+
+  // alias for keywords array.
+  char **keywords = syntax->keywords;
+
   // track whether the previous character was a separator, in order
   //  to tell if the current character is part of a new sequence.
   // initialize to true since the first word is part of a new word.
   bool prev_sep = true;
+  // true if the current char is part of a string (starts and ends
+  //  with double quotes "")
+  bool in_string = false;
+  // the current string delimiter (either ' or ", or '\0' if not in a string).
+  char str_delim = '\0';
   
   // set the color codes for the line_display characters.
   int i = 0;
@@ -65,6 +95,16 @@ void Syntax_SetHighlight(Syntax *syntax, char *line,
     char c = line[i];
     // the type of highlight of the previous character.
     unsigned char prev_h_char = (i > 0) ? (*h_line)[i - 1] : HL_NORMAL;
+
+    if (cd_single_size != 0 && !in_string) {
+      // syntax specifies comment highlighting, and we're not in a string.
+      if (!strncmp(&(line[i]), cd_single, cd_single_size)) {
+        // encountered the start of a single line comment, so set the
+        //  rest of the line for comment highlighting and break.
+        memset(&((*h_line)[i]), HL_COMMENT, l_size - i);
+        break;
+      }
+    }
 
     if (syntax->flags & HIGHLIGHT_NUMBERS) {
       // the syntax specifies number highlighting.
@@ -78,6 +118,64 @@ void Syntax_SetHighlight(Syntax *syntax, char *line,
         // consume this character.
         i++;
         // the just consumed char was not a separator.
+        prev_sep = false;
+        continue;
+      }
+    }
+
+    if (syntax->flags & HIGHLIGHT_STRINGS) {
+      if (in_string) {
+        (*h_line)[i] = HL_STRING;
+        if (c == '\\' && i + 1 < l_size) {
+          // encountered an escaped character.
+          i += 2;  // consume '\' and the escaped char.
+          continue;
+        }
+        if (c == str_delim) {
+          // encountered the matching delimiter, so we are not in a string.
+          str_delim = '\0';
+          in_string = false;
+        }
+        i++;
+        // closing quote is a separator.
+        prev_sep = true;
+        continue;
+      } {
+        if (c == '"' || c == '\'') {
+          // encountered the start of a string, so save the opening delimiter.
+          str_delim = c;
+          in_string = true;
+          (*h_line)[i] = HL_STRING;
+          i++;
+          continue;
+        }
+      }
+    }
+
+    if (prev_sep) {
+      // keywords need a separator before them.
+      int j;  // index into the keywords array.
+      for (j = 0; keywords[j] != NULL; j++) {
+        int keyword_len = strlen(keywords[j]);
+        bool is_type_2 = keywords[j][keyword_len - 1] == '|';
+        if (is_type_2) {
+          // remove the last char if it is a type 2 keyword.
+          keyword_len--;
+        }
+
+        if (!strncmp(&(line[i]), keywords[j], keyword_len) &&
+            Is_Separator(line[i + keyword_len])) {
+          // check if the current keyword exists at this point int the line,
+          //  and that it is followed by a separator (\0 EOL counts as a separator).
+          // unsigned char keyword_type = (is_type_2) ? HL_KEYWORD2 : HL_KEYWORD1;
+          memset(&((*h_line)[i]), (is_type_2) ? HL_KEYWORD2 : HL_KEYWORD1, keyword_len);
+          i += keyword_len;
+          break;
+        }
+      }
+
+      if (keywords[j] != NULL) {
+        // encountered a keyword in the above loop.
         prev_sep = false;
         continue;
       }
