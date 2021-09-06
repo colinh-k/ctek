@@ -7,3 +7,14 @@
 - Highlight multiple search results
 
 - Detect multiple search results in a single line
+
+- Make a new file with the given name if it doesn't exist,
+instead of quitting
+
+- Highlight multiline comments
+
+- Render ctrl-chars nicely
+
+- Render ctrl-I nicely
+
+- Support point-and-click with option key down to move the cursor

@@ -424,34 +424,10 @@ static void Editor_RenderRows(Buffer *wbuf) {
     } else {
       // drawing a row that is part of the text buffer.
       Editor_RenderRow(wbuf, disp_line);
-      // calculate how much of the row to show by subtracting the 
-      //  column position in the file from the size of the line.
-      // int size = e_state.file_lines[disp_line].size_display - e_state.cur_file_col;
-      // if (size < 0) {
-      //   // scrolled too far over to view any chars from this line.
-      //   size = 0;
-      // }
-      // if (size > e_state.num_cols) {
-      //   size = e_state.num_cols;
-      // }
-
-      // char *line = &(e_state.file_lines[disp_line].line_display[e_state.cur_file_col]);
-      // for (int i = 0; i < size; i++) {
-      //   if (isdigit(line[i])) {
-      //     WB_AppendESCCmd(wbuf, RED);
-      //     WB_Append(wbuf, &(line[i]), 1);
-      //     WB_AppendESCCmd(wbuf, RES);
-      //   } else {
-      //     WB_Append(wbuf, &(line[i]), 1);
-      //   }
-      // }
-
-      // WB_Append(wbuf, (&(e_state.file_lines[disp_line].line_display[e_state.cur_file_col])),
-      //           size);
     }
 
     // clear the line to the end.
-    WB_AppendESCCmd(wbuf, ESC_CMD_CLEAR(LINE, END_));
+    WB_AppendESCCmd(wbuf, ESC_CMD_CLEAR(LINE, END));
     // if (y < e_state.num_rows - 1) {
       WB_AppendESCCmd(wbuf, NL);
     // }
@@ -651,7 +627,7 @@ void Editor_SetCmdMsg(const char *msg, ...) {
 
 static void Editor_RenderMessageLine(Buffer *wbuf) {
   // clear the line.
-  WB_AppendESCCmd(wbuf, ESC_CMD_CLEAR(LINE, END_));
+  WB_AppendESCCmd(wbuf, ESC_CMD_CLEAR(LINE, END));
   // ensure the message can fit in the window.
   int msg_size = min(strlen(e_state.msg_line), e_state.num_cols);
   // only render the message if it is less than MSG_TIMEOUT seconds old.

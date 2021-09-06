@@ -10,6 +10,10 @@
 
 int main(int argc, char const *argv[]) {
   Editor_Open();
+  if (argc > 2) {
+    fprintf(stderr, "Please pass 1 filename, or none to begin a new file");
+    return EXIT_SUCCESS;
+  }
   if (argc == 2) {
     // if passed a filename, initialize the editor with the file.
     Editor_InitFromFile(argv[1]);

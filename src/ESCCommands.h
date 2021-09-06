@@ -17,7 +17,7 @@
 #define ALL "2"    // clear the whole scope.
 #define START "1"  // clear up to the cursor from start.
 // END conficts with Keyboard END
-#define END_ "0"    // clear from the cursor to the end.
+#define END "0"    // clear from the cursor to the end.
 // clear the given scope to the given position.
 #define ESC_CMD_CLEAR(scope, to) (ESC_SEQ to scope)
 

@@ -62,15 +62,14 @@ int Term_Size(int *rows, int *cols) {
   int res = ioctl(STDOUT_FILENO, TIOCGWINSZ, &window_size);
   if (res == -1 || window_size.ws_col == 0) {
     // on ioctl failure, it is possible to still get the window
-    //  size by moveing the cursor to the bottom right and getting
+    //  size by moving the cursor to the bottom right and getting
     //  its position with escape sequences.
     // 999C: move right by 999
     // 999B: move down by 999
     int res = WrappedWrite(STDOUT_FILENO, (const unsigned char *) "\x1b[999C\x1b[999B", 12);
     if (res != 12) return -1;
     return Term_CurorPosition(rows, cols);
-  }
-  else {
+  } else {
     *cols = window_size.ws_col;
     *rows = window_size.ws_row;
     return 0;
